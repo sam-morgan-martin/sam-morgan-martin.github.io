@@ -92,10 +92,10 @@ al_folio:
 
 navbar_fixed: true
 footer_fixed: true
-search_enabled: true
-socials_in_search: true
-posts_in_search: true
-bib_search: true
+search_enabled: false
+socials_in_search: false
+posts_in_search: false
+bib_search: false
 
 # Dimensions
 max_width: 930px
@@ -352,7 +352,7 @@ display_categories: ["external-services"] # these categories will be displayed o
 
 scholar:
   last_name: [Martin]
-  first_name: [Samuel, M.]
+  first_name: [Samuel, Morgan]
 
   style: apa
   locale: en
