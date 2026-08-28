@@ -2,7 +2,7 @@
 layout: about
 title: about
 permalink: /
-subtitle: PhD Candidate, [University of Toronto](https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin)
+subtitle: PhD Candidate, University of Toronto
 
 profile:
   align: right
