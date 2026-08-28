@@ -8,7 +8,7 @@ profile:
   align: right
   image: sam_nice.jpg
   image_circular: false # crops the image to make it circular
-  more_info: 
+  more_info:
 
 selected_papers: false # includes a list of papers marked as "selected={true}"
 social: false # includes social icons at the bottom of the page
@@ -24,4 +24,4 @@ latest_posts:
   limit: 3 # leave blank to include all the blog posts
 ---
 
-I am a PhD candidate in Political Science at the [University of Toronto](https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin). For my doctoral research, I study how authoritarian elite networks affect outcomes such as leadership challenges, regime consolidation, and elite suppression. 
+I am a PhD candidate in Political Science at the [University of Toronto](https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin). For my doctoral research, I study how authoritarian elite networks affect outcomes such as leadership challenges, regime consolidation, and elite suppression.
