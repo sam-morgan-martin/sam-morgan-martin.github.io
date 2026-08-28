@@ -24,6 +24,6 @@ latest_posts:
   limit: 3 # leave blank to include all the blog posts
 ---
 
-I study how authoritarian elite networks affect outcomes such as leadership challenges, regime consolidation, and elite suppression. I am grateful to Canada's Social Science and Humanities Research council for supporting my research.
+I study how authoritarian elite networks affect outcomes such as leadership challenges, regime consolidation, and elite suppression. I am grateful to Canada's Social Science and Humanities Research Council for supporting my research.
 
 Please visit my research page to download my working paper titled "Power Play: Elite Networks and Authoritarian Leadership Challenges." Comments are greatly appreciated!
