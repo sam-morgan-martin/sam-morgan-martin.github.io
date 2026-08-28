@@ -24,7 +24,7 @@ cv:
   sections:
     Education:
       - institution: University of Toronto
-        location: Toronto, Ontario, Canada
+        location: Toronto, ON
         url: https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin
         area: Political Science
         studyType: PhD
@@ -37,7 +37,7 @@ cv:
           - International Relations
 
       - institution: University of Toronto
-        location: Toronto, Ontario, Canada
+        location: Toronto, ON
         area: Political Science
         studyType: M.A.
         start_date: 2021
@@ -45,7 +45,7 @@ cv:
         highlights:
 
       - institution: University of Victoria
-        location: Victoria, British Columbia, Canada
+        location: Victoria, BC
         area: Political Science
         studyType: B.A.
         start_date: 2015
@@ -78,7 +78,7 @@ cv:
       - title: Doctoral Fellowship
         authors:
           - "Social Science & Humanities Research Council of Canada"
-        date: 2024
+        date: 2024-2026
         awarder: Social Science & Humanities Research Council of Canada
         #url: https://www.nobelprize.org/prizes/physics/1921/einstein/biographical/
         #summary: The Nobel Prizes are five separate prizes that, according to Alfred Nobel's will of 1895, are awarded to 'those who, during the preceding year, have conferred the greatest benefit to humankind.'
