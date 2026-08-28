@@ -3,7 +3,7 @@ cv:
   label: PhD Candidate
   email: sammorgan.martin@mail.utoronto.ca
   location: Toronto, Ontario, Canada
-  image: ""
+  #image: ""
   # summary: A German-born theoretical physicist, widely ranked among the greatest and most influential scientists of all time
 
   #social_networks:
@@ -29,7 +29,7 @@ cv:
         area: Political Science
         studyType: PhD
         start_date: 2022
-        end_date: Ongoing
+        end_date: present
         score: ""
         courses: ""
         highlights:
@@ -50,7 +50,8 @@ cv:
         studyType: B.A.
         start_date: 2015
         end_date: 2020
-        highlights: Honours with Highest Distinction
+        highlights:
+          - Honours with Highest Distinction
 
     #Experience:
     #  - company: Institute for Advanced Study, Princeton University
