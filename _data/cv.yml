@@ -10,7 +10,7 @@ cv:
 
   sections:
     Education:
-      - institution: University of Toronto
+      - institution: University of Toronto TEST
         area: Political Science
         degree: PhD
         location: Toronto, ON
