@@ -2,8 +2,11 @@ cv:
   name: Samuel Morgan Martin
   location: Toronto, Ontario, Canada
   email: sammorgan.martin@mail.utoronto.ca
-  website: https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin
-  # phone: "+1-250-516-2159"  # from the old CV; uncomment if you want it shown
+  website: https://your-personal-site.com
+  custom_connections:
+    - placeholder: U of T Profile
+      url: https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin
+      fontawesome_icon: building-columns
 
   sections:
     Education:
