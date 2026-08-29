@@ -10,7 +10,7 @@ cv:
 
   sections:
     Education:
-      - institution: University of Toronto TESTING
+      - institution: University of Toronto
         area: Political Science
         degree: PhD
         location: Toronto, ON
@@ -178,4 +178,4 @@ cv:
         details: Intermediate
 
 design:
-  theme: classic
+  theme: sb2nov
