@@ -1,0 +1,240 @@
+---
+layout: page
+---
+
+{%- comment -%}
+  Local override of the al_folio_cv layout.
+
+  Renders _data/cv.yml (RenderCV format) with arbitrary section names.
+  Entry types are detected from their identifying fields, the same way
+  RenderCV infers them, so any section title works.
+
+  Assumes cv_format: rendercv. Does not handle assets/json/resume.json.
+{%- endcomment -%}
+
+{%- assign cv = site.data.cv.cv -%}
+
+<style>
+  .cv-entry {
+    display: flex;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .cv-entry-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .cv-entry-meta {
+    flex: 0 0 auto;
+    text-align: right;
+    white-space: nowrap;
+    opacity: 0.7;
+    font-size: 0.9em;
+  }
+  .cv-entry-title {
+    font-weight: 600;
+  }
+  .cv-entry-summary {
+    margin: 0.15rem 0;
+  }
+  .cv-entry ul {
+    margin: 0.25rem 0 0 1.1rem;
+    padding: 0;
+  }
+  .cv-entry li p,
+  .cv-oneline p,
+  .cv-text p {
+    margin: 0;
+    display: inline;
+  }
+  .cv-oneline {
+    margin-bottom: 0.4rem;
+  }
+  .cv-contact td:first-child {
+    font-weight: 600;
+    width: 8rem;
+  }
+  @media (max-width: 576px) {
+    .cv-entry {
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .cv-entry-meta {
+      text-align: left;
+    }
+  }
+</style>
+
+{%- if page.cv_pdf %}
+  <div class="cv-download">
+    <a href="{{ page.cv_pdf | relative_url }}" target="_blank" rel="noopener noreferrer">
+      <i class="fa-solid fa-file-pdf"></i> Download PDF
+    </a>
+  </div>
+{%- endif %}
+
+<h2 id="contact-information">Contact Information</h2>
+<table class="cv-contact">
+  <tbody>
+    {%- if cv.name %}
+      <tr><td>Name</td><td>{{ cv.name }}</td></tr>
+    {%- endif %}
+    {%- if cv.headline %}
+      <tr><td>Headline</td><td>{{ cv.headline }}</td></tr>
+    {%- endif %}
+    {%- if cv.location %}
+      <tr><td>Location</td><td>{{ cv.location }}</td></tr>
+    {%- endif %}
+    {%- if cv.email %}
+      <tr><td>Email</td><td><a href="mailto:{{ cv.email }}">{{ cv.email }}</a></td></tr>
+    {%- endif %}
+    {%- if cv.phone %}
+      <tr><td>Phone</td><td>{{ cv.phone }}</td></tr>
+    {%- endif %}
+    {%- if cv.website %}
+      <tr><td>Website</td><td><a href="{{ cv.website }}" target="_blank" rel="noopener noreferrer">{{ cv.website }}</a></td></tr>
+    {%- endif %}
+    {%- for connection in cv.custom_connections %}
+      <tr>
+        <td>{{ connection.placeholder }}</td>
+        <td>
+          {%- if connection.url -%}
+            <a href="{{ connection.url }}" target="_blank" rel="noopener noreferrer">{{ connection.url }}</a>
+          {%- else -%}
+            {{ connection.placeholder }}
+          {%- endif -%}
+        </td>
+      </tr>
+    {%- endfor %}
+    {%- for network in cv.social_networks %}
+      <tr><td>{{ network.network }}</td><td>{{ network.username }}</td></tr>
+    {%- endfor %}
+  </tbody>
+</table>
+
+{%- for section in cv.sections %}
+  {%- assign section_title = section[0] -%}
+  {%- assign entries = section[1] -%}
+
+  <h2 id="{{ section_title | slugify }}">{{ section_title }}</h2>
+
+  {%- comment -%} Numbered entries need an <ol>, everything else stands alone. {%- endcomment -%}
+  {%- assign first_entry = entries | first -%}
+  {%- if first_entry.number or first_entry.reversed_number %}
+    <ol {% if first_entry.reversed_number %}reversed{% endif %}>
+      {%- for entry in entries %}
+        <li>{{ entry.number | default: entry.reversed_number | markdownify }}</li>
+      {%- endfor %}
+    </ol>
+  {%- else %}
+    {%- for entry in entries %}
+
+      {%- comment -%} Build the date string: `date` wins over start/end, per RenderCV. {%- endcomment -%}
+      {%- capture entry_date -%}
+        {%- if entry.date and entry.date != "" -%}
+          {{ entry.date }}
+        {%- elsif entry.start_date -%}
+          {{ entry.start_date }}{% if entry.end_date %} – {{ entry.end_date }}{% endif %}
+        {%- endif -%}
+      {%- endcapture -%}
+      {%- assign entry_date = entry_date | strip -%}
+
+      {%- if entry.institution %}
+        {%- comment -%} EducationEntry {%- endcomment -%}
+        <div class="cv-entry">
+          <div class="cv-entry-main">
+            <div class="cv-entry-title">
+              {{ entry.institution }}{% if entry.area %}, {{ entry.area }}{% endif %}
+              {%- if entry.degree %} <em>({{ entry.degree }})</em>{% endif %}
+            </div>
+            {%- if entry.summary %}<div class="cv-entry-summary">{{ entry.summary | markdownify }}</div>{% endif %}
+            {%- if entry.highlights %}
+              <ul>{% for h in entry.highlights %}<li>{{ h | markdownify }}</li>{% endfor %}</ul>
+            {%- endif %}
+          </div>
+          <div class="cv-entry-meta">
+            {%- if entry.location %}{{ entry.location }}<br />{% endif %}
+            {{ entry_date }}
+          </div>
+        </div>
+
+      {%- elsif entry.company %}
+        {%- comment -%} ExperienceEntry {%- endcomment -%}
+        <div class="cv-entry">
+          <div class="cv-entry-main">
+            <div class="cv-entry-title">
+              {{ entry.company }}{% if entry.position %}, {{ entry.position }}{% endif %}
+            </div>
+            {%- if entry.summary %}<div class="cv-entry-summary">{{ entry.summary | markdownify }}</div>{% endif %}
+            {%- if entry.highlights %}
+              <ul>{% for h in entry.highlights %}<li>{{ h | markdownify }}</li>{% endfor %}</ul>
+            {%- endif %}
+          </div>
+          <div class="cv-entry-meta">
+            {%- if entry.location %}{{ entry.location }}<br />{% endif %}
+            {{ entry_date }}
+          </div>
+        </div>
+
+      {%- elsif entry.title %}
+        {%- comment -%} PublicationEntry {%- endcomment -%}
+        <div class="cv-entry">
+          <div class="cv-entry-main">
+            <div class="cv-entry-title">
+              {%- if entry.url -%}
+                <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer">{{ entry.title | markdownify | strip }}</a>
+              {%- else -%}
+                {{ entry.title | markdownify | strip }}
+              {%- endif -%}
+            </div>
+            {%- if entry.authors %}
+              <div class="cv-entry-summary">
+                {%- for author in entry.authors -%}
+                  {{ author | markdownify | strip }}{% unless forloop.last %}, {% endunless %}
+                {%- endfor -%}
+              </div>
+            {%- endif %}
+            {%- if entry.journal %}<div class="cv-entry-summary"><em>{{ entry.journal }}</em></div>{% endif %}
+            {%- if entry.doi %}
+              <div class="cv-entry-summary">
+                <a href="https://doi.org/{{ entry.doi }}" target="_blank" rel="noopener noreferrer">{{ entry.doi }}</a>
+              </div>
+            {%- endif %}
+            {%- if entry.summary %}<div class="cv-entry-summary">{{ entry.summary | markdownify }}</div>{% endif %}
+          </div>
+          <div class="cv-entry-meta">{{ entry_date }}</div>
+        </div>
+
+      {%- elsif entry.name %}
+        {%- comment -%} NormalEntry {%- endcomment -%}
+        <div class="cv-entry">
+          <div class="cv-entry-main">
+            <div class="cv-entry-title">{{ entry.name | markdownify | strip }}</div>
+            {%- if entry.summary %}<div class="cv-entry-summary">{{ entry.summary | markdownify }}</div>{% endif %}
+            {%- if entry.highlights %}
+              <ul>{% for h in entry.highlights %}<li>{{ h | markdownify }}</li>{% endfor %}</ul>
+            {%- endif %}
+          </div>
+          <div class="cv-entry-meta">
+            {%- if entry.location %}{{ entry.location }}<br />{% endif %}
+            {{ entry_date }}
+          </div>
+        </div>
+
+      {%- elsif entry.label %}
+        {%- comment -%} OneLineEntry {%- endcomment -%}
+        <div class="cv-oneline"><strong>{{ entry.label }}:</strong> {{ entry.details | markdownify | strip }}</div>
+
+      {%- elsif entry.bullet %}
+        {%- comment -%} BulletEntry {%- endcomment -%}
+        <ul><li>{{ entry.bullet | markdownify }}</li></ul>
+
+      {%- else %}
+        {%- comment -%} TextEntry: a plain string {%- endcomment -%}
+        <div class="cv-text">{{ entry | markdownify }}</div>
+      {%- endif %}
+
+    {%- endfor %}
+  {%- endif %}
+{%- endfor %}
