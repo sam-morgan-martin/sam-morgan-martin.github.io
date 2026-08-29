@@ -1,166 +1,168 @@
 cv:
   name: Samuel Morgan Martin
-  #label: PhD Candidate
-  email: sammorgan.martin@mail.utoronto.ca
   location: Toronto, Ontario, Canada
-  #image: ""
-  # summary: A German-born theoretical physicist, widely ranked among the greatest and most influential scientists of all time
-
-  #social_networks:
-  #  - network: X
-  #    username: AlbertEinstein
-  #  - network: GitHub
-  #    username: example
-  #  - network: LinkedIn
-  #    username: example
-
-  #address:
-  #  street: 2712 Broadway St
-  #  city: San Francisco
-  #  region: California
-  #  postalCode: CA 94115
-  #  countryCode: US
+  email: sammorgan.martin@mail.utoronto.ca
+  website: https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin
+  # phone: "+1-250-516-2159"  # from the old CV; uncomment if you want it shown
 
   sections:
     Education:
       - institution: University of Toronto
-        location: Toronto, ON
-        url: https://www.politics.utoronto.ca/people/directories/graduate-students/samuel-martin
         area: Political Science
-        studyType: PhD
+        degree: PhD
+        location: Toronto, ON
         start_date: 2022
         end_date: present
-        score: ""
-        courses: ""
         highlights:
-          - Comparative Politics
-          - International Relations
+          - "Fields: Comparative Politics, International Relations"
 
       - institution: University of Toronto
-        location: Toronto, ON
         area: Political Science
-        studyType: M.A.
+        degree: MA
+        location: Toronto, ON
         start_date: 2021
         end_date: 2022
-        highlights:
 
       - institution: University of Victoria
-        location: Victoria, BC
         area: Political Science
-        studyType: B.A.
+        degree: BA
+        location: Victoria, BC
         start_date: 2015
         end_date: 2020
         highlights:
           - Honours with Highest Distinction
 
-    #Experience:
-    #  - company: Institute for Advanced Study, Princeton University
-    #    position: Professor of Theoretical Physics
-    #    location: Princeton University, NJ
-    #    start_date: 1933
-    #    end_date: 1955
-    #    summary: Teaching at Palmer Physical Laboratory (now 302 Frist Campus Center). While not a professor at Princeton, I associated with the physics professors and continued to give lectures on campus.
-    #    highlights:
-    #      - Relativity
-    #      - Description 2.
+    Fellowships and Awards:
+      - name: Doctoral Fellowship, Social Sciences and Humanities Research Council of Canada
+        date: "2024 – 2026"
+        highlights:
+          - "$80,000 CAD"
 
-    #Volunteer:
-    #  - company: People's Climate March
-    #    position: Lead Organizer
-    #    location: Zurich, Switzerland
-    #    start_date: 2014-04-01
-    #    end_date: 2015-07-01
-    #    summary: Lead organizer for the New York City branch of the People's Climate March, the largest climate march in history.
-    #    highlights:
-    #      - "Awarded 'Climate Hero' award by Greenpeace for my efforts organizing the march."
-    #      - "Men of the year 2014 by Time magazine"
-
-    Awards:
-      - title: Doctoral Fellowship
+    Conference Papers:
+      - title: "The Betweenniks: Coups, coup proofing, and autocratic elite networks"
         authors:
-          - "Social Science & Humanities Research Council of Canada"
-        date: 2024-2026
-        awarder: Social Science & Humanities Research Council of Canada
-        #url: https://www.nobelprize.org/prizes/physics/1921/einstein/biographical/
-        #summary: The Nobel Prizes are five separate prizes that, according to Alfred Nobel's will of 1895, are awarded to 'those who, during the preceding year, have conferred the greatest benefit to humankind.'
+          - Samuel Morgan Martin
+        journal: Annual Political Networks and Computational Social Science Conference, Boston, MA
+        date: "2025-08"
 
-    #Publications:
-    #  - title: Zur Elektrodynamik bewegter Körper
-    #    authors:
-    #      - Albert Einstein
-    #    publisher: Annalen der Physik
-    #    releaseDate: 1905-06-30
-    #    url: https://en.wikisource.org/wiki/Translation:On_the_Electrodynamics_of_Moving_Bodies
-    #    summary: It concerned an interpretation of the Michelson–Morley experiment and the properties of light and time. Special relativity incorporates the principle that the speed of light is the same for all inertial observers regardless of the state of motion of the source.
+      - title: "The Betweenniks: Coups, coup proofing, and autocratic elite networks"
+        authors:
+          - Samuel Morgan Martin
+        journal: Prairie Political Science Association Conference, Banff, AB
+        date: "2025-08"
 
-    #  - title: Über einen die Erzeugung und Verwandlung des Lichtes betreffenden heuristischen Gesichtspunkt
-    #    authors:
-    #      - Albert Einstein
-    #    publisher: Annalen der Physik
-    #    releaseDate: 1905-03-18
-    #    url: https://de.wikisource.org/wiki/Über_einen_die_Erzeugung_und_Verwandlung_des_Lichtes_betreffenden_heuristischen_Gesichtspunkt
-    #    summary: In the second paper, he applied the quantum theory to light to explain the photoelectric effect. In particular, he used the idea of light quanta (photons) to explain experimental results, but stressed the importance of the experimental results. The importance of his work on the photoelectric effect earned him the Nobel Prize in Physics in 1921.
+      - title: "Moscow Must Pay: the economy of central control in Putin's Russia"
+        authors:
+          - Samuel Morgan Martin
+        journal: Association of Eastern European Eurasian Studies Conference, Boston, MA
+        date: "2024-11"
 
-    #  - title: Die Grundlage der allgemeinen Relativitätstheorie
-    #    authors:
-    #      - Albert Einstein
-    #    publisher: Annalen der Physik
-    #    releaseDate: 1916-03-20
-    #    url: https://de.wikisource.org/wiki/Die_Grundlage_der_allgemeinen_Relativitätstheorie
-    #    summary: The publication of the theory of general relativity made him internationally famous. He was professor of physics at the universities of Zurich (1909–1911) and Prague (1911–1912), before he returned to ETH Zurich (1912–1914).
+      - title: "Moscow Must Pay: the economy of central control in Putin's Russia"
+        authors:
+          - Samuel Morgan Martin
+        journal: Western Political Science Association Conference, Vancouver, BC
+        date: "2024-03"
+
+    Research Assistantships:
+      - name: "Elite Networks and Autocratic Stability: Application to Putin's Russia"
+        start_date: "2025" # TODO: add years
+        end_date: present
+        summary: Research assistant to Professor Olga Chyzh.
+        highlights:
+          - Developed automated network data collection procedures using large language models.
+
+      - name: Who Voted for the Guns of August?
+        date: "2024" # TODO: add years
+        summary: Research assistant to Professor Brendan McElroy.
+        highlights:
+          - Literature review, data collection, and archival work in Russian.
+
+      - name: The Cultural Politics of Infrastructure
+        date: "2022" # TODO: add years
+        summary: Research assistant to Professor Theresa Enright on her SSHRC-funded project.
+        highlights:
+          - Conducted literature review, collected data, and conducted interviews.
+
+      - name: Comparative Politics in Canada
+        date: "2019" # TODO: add years
+        summary: Research assistant to Professors Michelle Bonner and Rita Tremblay.
+        highlights:
+          - Collected data on comparative politics researchers in Canada.
+
+    Teaching (Methods):
+      - name: Network Analysis II, ICPSR Summer Program
+        date: "2024 – 2026"
+        summary: Teaching assistant for Professors Olga Chyzh and Shahryar Minhas.
+
+      - name: "POL304: Quantitative Study of War"
+        date: Winter 2025
+        summary: Teaching assistant for Professor Mark Nieman.
+
+      - name: "POL304: Using Data to Understand Politics and Society"
+        date: Winter 2024
+        summary: Teaching assistant for Professor Olga Chyzh.
+
+    Teaching (Substantive):
+      - name: "POL380: Terrorism and Insurgency"
+        date: Winter 2026
+        summary: Teaching assistant for Professor Olga Chyzh.
+
+      - name: "POL212: Understanding War"
+        date: Fall 2025
+        summary: Teaching assistant for Professor Dani K. Nedal.
+
+      - name: "POL354: Russian Politics"
+        date: Fall 2024, 2025
+        summary: Teaching assistant for Professor Brendan McElroy.
+
+      - name: "POLA01: Revolutions"
+        date: Fall 2024
+        summary: Teaching assistant for Professor Lucan Way.
+
+      - name: "POL107: What Went Wrong? A Post Mortem of Political Disasters, Catastrophic Policy Failures, and Epic Marches of Folly"
+        date: Fall 2023
+        summary: Teaching assistant for Professor Lilach Gilady.
+
+      - name: "POL354: Russian Politics"
+        date: Fall 2023
+        summary: Teaching assistant for Professor Ed Schatz.
+
+      - name: "POL305: The International Politics of Authoritarianisms"
+        date: Fall 2023
+        summary: Teaching assistant for Semuhi Sinanoglu.
+
+      - name: "POL101: The Real World of Politics"
+        date: Fall 2023
+        summary: Teaching assistant for Professor Courtney Jung.
+
+    Service and Research Program Organization:
+      - name: Comparative Autocracy Student Research Cluster
+        location: University of Toronto
+        date: "2022 – 2023"
+        summary: Co-Chair, Department of Political Science.
+        highlights:
+          - "Book talk: *Revolution and Dictatorship* by Dr. Lucan Way (November 2022)."
+          - "Book talk: *Outsourcing Repression* by Dr. Lynette Ong (December 2022)."
+          - 'Thesis workshop: "State-Business Relations under Assad 1991-2011" by Gamal Mansour (January 2023).'
+          - 'Paper workshop: "Moscow Must Pay: the economy of central control in Putin''s Russia" by Samuel Morgan Martin (November 2023).'
+
+    Professional Development:
+      - name: Bellingcat RUnet Open Source Intelligence (OSINT) Workshop
+        date: "2023-08"
 
     Skills:
-      - name: Methods
-        #level: Master
-        icon: fa-solid
-        keywords: "Network analysis, Natural Language Processing, Spatial Statistics, Panel Data"
+      - label: Methods
+        details: Network analysis, Natural Language Processing, Spatial Statistics, Panel Data
 
-      - name: Software
-        icon: fa-solid
-        keywords: "R, Python, vLLM"
+      - label: Software
+        details: R, Python, vLLM
 
     Languages:
-      - name: English
-        summary: "Native speaker"
+      - label: English
+        details: Native speaker
 
-      - name: Russian
-        summary: "Intermediate"
+      - label: Russian
+        details: Intermediate
 
-    #Interests:
-    #  - name: Physics
-    #    icon: fa-solid fa-tag
-    #    keywords: "Quantum Mechanics, Quantum Computing, Quantum Information, Quantum Cryptography, Quantum Communication, Quantum Teleportation"
-
-    #Certificates:
-    #  - name: Machine Learning
-    #    date: 2018-01-01
-    #    issuer: Stanford University
-    #    icon: fa-solid fa-location-dot
-
-    #  - name: Quantum Computing
-    #    date: 2018-01-01
-    #    issuer: Stanford University
-    #    icon: fa-solid fa-tag
-
-    #  - name: Quantum Information
-    #    date: 2018-01-01
-    #    issuer: Stanford University
-    #    icon: fa-solid fa-envelope
-
-    #Projects:
-    #  - name: Quantum Computing
-    #    summary: Quantum computing is the use of quantum-mechanical phenomena such as superposition and entanglement to perform computation. Computers that perform quantum computations are known as quantum computers.
-    #    highlights:
-    #      - Quantum Teleportation
-    #      - Quantum Cryptography
-    #    start_date: 2018-01-01
-    #    end_date: 2018-01-01
-
-    #References:
-    #  - name: Professor John Doe
-    #    icon: fa-solid fa-laptop
-    #    reference: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam condimentum, diam quis convallis euismod, arcu mi ullamcorper lorem, a vestibulum nunc magna at sem. Sed in risus ac felis varius blandit.
-
-    #  - name: Professor Jane Smith
-    #    icon: fa-solid fa-thumbtack
-    #    reference: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam condimentum, diam quis convallis euismod, arcu mi ullamcorper lorem, a vestibulum nunc magna at sem. Sed in risus ac felis varius blandit.
+design:
+  theme: classic
