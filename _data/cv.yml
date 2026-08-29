@@ -33,7 +33,7 @@ cv:
         start_date: 2015
         end_date: 2020
         highlights:
-          - Honours with Highest Distinction
+          - Honours with Distinction
 
     Fellowships and Awards:
       - name: Doctoral Fellowship, Social Sciences and Humanities Research Council of Canada
@@ -41,30 +41,40 @@ cv:
         highlights:
           - "$80,000 CAD"
 
-    Conference Papers:
-      - title: "The Betweenniks: Coups, coup proofing, and autocratic elite networks"
-        authors:
-          - Samuel Morgan Martin
-        journal: Annual Political Networks and Computational Social Science Conference, Boston, MA
+      - name: APSA Political Networks Section Travel Grant
+        date: "2026-08"
+        highlights:
+          - "$500 USD"
+
+    Recent Conference and Workshop Presentations:
+      - title: "Power Play: Elite Networks and Authoritarian Leadership Challenges"
+        journal: ASPA Annual Meeting, Boston, MA
+        date: "2026-09"
+
+      - title: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
+        journal: Annual Political Networks Conference, Manchester, UK
+        date: "2026-08"
+
+      - title: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
+        journal: Blalock Lecture Series, ICPSR Summer Program, Ann Arbor, MI
+        date: "2026-07"
+
+      - title: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
+        journal: MPSA Annual Meeting, Chicago, IL
+        date: "2026-08"
+
+      - title: "The Betweenniks: Coups, Coup proofing, and Autocratic Elite Networks"
+        journal: Annual Political Networks Conference, Boston, MA
         date: "2025-08"
 
-      - title: "The Betweenniks: Coups, coup proofing, and autocratic elite networks"
-        authors:
-          - Samuel Morgan Martin
+      - title: "The Betweenniks: Coups, Coup Proofing, and Autocratic Elite Networks"
         journal: Prairie Political Science Association Conference, Banff, AB
         date: "2025-08"
 
-      - title: "Moscow Must Pay: the economy of central control in Putin's Russia"
-        authors:
-          - Samuel Morgan Martin
-        journal: Association of Eastern European Eurasian Studies Conference, Boston, MA
-        date: "2024-11"
-
-      - title: "Moscow Must Pay: the economy of central control in Putin's Russia"
-        authors:
-          - Samuel Morgan Martin
-        journal: Western Political Science Association Conference, Vancouver, BC
-        date: "2024-03"
+    Poster Presentations:
+      - title: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
+        journal: PolMeth Summer Meeting, East Lansing, MI
+        date: "2026-07"
 
     Research Assistantships:
       - name: "Elite Networks and Autocratic Stability: Application to Putin's Russia"
