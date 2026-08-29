@@ -47,33 +47,33 @@ cv:
           - "$500 USD"
 
     Recent Conference and Workshop Presentations:
-      - title: "Power Play: Elite Networks and Authoritarian Leadership Challenges"
-        journal: ASPA Annual Meeting, Boston, MA
+      - name: "Power Play: Elite Networks and Authoritarian Leadership Challenges"
+        summary: APSA Annual Meeting, Boston, MA
         date: "2026-09"
 
-      - title: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
-        journal: Annual Political Networks Conference, Manchester, UK
+      - name: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
+        summary: Annual Political Networks Conference, Manchester, UK
         date: "2026-08"
 
-      - title: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
-        journal: Blalock Lecture Series, ICPSR Summer Program, Ann Arbor, MI
+      - name: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
+        summary: Blalock Lecture Series, ICPSR Summer Program, Ann Arbor, MI
         date: "2026-07"
 
-      - title: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
-        journal: MPSA Annual Meeting, Chicago, IL
-        date: "2026-08"
+      - name: "Power Play: How Networks Structure Credible Commitment in Authoritarian Leadership Challenges"
+        summary: MPSA Annual Meeting, Chicago, IL
+        date: "2026-04"
 
-      - title: "The Betweenniks: Coups, Coup proofing, and Autocratic Elite Networks"
-        journal: Annual Political Networks Conference, Boston, MA
+      - name: "The Betweenniks: Coups, Coup Proofing, and Autocratic Elite Networks"
+        summary: Annual Political Networks Conference, Boston, MA
         date: "2025-08"
 
-      - title: "The Betweenniks: Coups, Coup Proofing, and Autocratic Elite Networks"
-        journal: Prairie Political Science Association Conference, Banff, AB
+      - name: "The Betweenniks: Coups, Coup Proofing, and Autocratic Elite Networks"
+        summary: Prairie Political Science Association Conference, Banff, AB
         date: "2025-08"
 
     Poster Presentations:
-      - title: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
-        journal: PolMeth Summer Meeting, East Lansing, MI
+      - name: "Decoding Networks: Open-Weights LLMs for Network Data Extraction"
+        summary: PolMeth Summer Meeting, East Lansing, MI
         date: "2026-07"
 
     Research Assistantships:
