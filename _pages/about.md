@@ -2,7 +2,7 @@
 layout: about
 title: about
 permalink: /
-subtitle: PhD Candidate, University of Toronto
+subtitle: PhD Candidate, University of Toronto, Department of Political Science
 
 profile:
   align: right
