@@ -140,6 +140,9 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .node.st-duplicate { --rail: var(--dup); border-left-style: solid; }
 .problem { flex-basis: 100%; font-size: 12.5px; color: var(--del); padding-left: 30px; }
 .problem:empty { display: none; }
+.empty-doc { border: 1px dashed var(--line); border-radius: 6px; padding: 12px 14px; margin: 10px 0; color: var(--muted); }
+.empty-doc p { margin: 0 0 8px; }
+.empty-doc.done { border-style: solid; border-color: var(--ok); }
 .node.flash { animation: flash 1.2s ease-out 1; }
 @keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 @media (prefers-reduced-motion: reduce) { .node.flash { animation: none; outline: 2px solid var(--accent); } }
@@ -381,6 +384,7 @@ function tally(review) {
   const c = { correct: 0, edited: 0, deleted: 0, added: 0, duplicate: 0, unreviewed: 0, total: 0, invalid: 0, leak: 0 };
   const targets = dupTargets(review);
   eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted") { if (invalid(n, targets)) c.invalid++; c.leak += leakCount(n); } });
+  if (!review.people.length && !review.confirmedEmpty) { c.unreviewed++; c.total++; c.emptyPending = true; }
   return c;
 }
 function findNode(review, id) {
@@ -448,7 +452,7 @@ function reviewFromExport(x) {
     else if (byId.has(e.parent_id)) byId.get(e.parent_id).children.push(n);
     else throw new Error("its log is incomplete");
   }
-  return { nextNew: maxNew + 1, savedAt: x.exported_at || null, dirtySinceSave: false, people,
+  return { nextNew: maxNew + 1, savedAt: x.exported_at || null, dirtySinceSave: false, people, confirmedEmpty: !!x.confirmed_empty,
     history: x.review_history || (x.reviewer ? [{ reviewer: x.reviewer, exported_at: x.exported_at }] : []) };
 }
 
@@ -485,10 +489,12 @@ async function loadFiles(list) {
     if (S.files.has(t.base)) S.files.get(t.base).text = t.text; else S.pendingText.set(t.base, t.text);
   }
   const takeText = base => { const t = S.pendingText.get(base) ?? S.files.get(base)?.text ?? null; S.pendingText.delete(base); return t; };
-  let nOrig = 0, nRev = 0, keptReviewed = 0;
+  let nOrig = 0, nRev = 0, keptReviewed = 0, keptBlank = 0, nBlank = 0;
   for (const o of originals) {
     const base = baseOf(o.name);
-    if (S.files.get(base)?.fromReview) { keptReviewed++; continue; }  // a reviewed version is already open
+    const existing = S.files.get(base);
+    if (existing?.fromReview) { keptReviewed++; continue; }  // a reviewed version is already open
+    if (existing?.blank && (existing.review.people.length || existing.review.confirmedEmpty)) { keptBlank++; continue; }
     const entry = { base, hash: hash(o.raw), json: o.parsed, text: takeText(base), review: null, error: null, fromReview: false };
     if (o.err || !o.parsed) { entry.error = "Not valid JSON: " + o.err; errors++; }
     else { entry.review = restoreAutosave(base, entry.hash) || buildReview(o.parsed); nOrig++; }
@@ -496,10 +502,18 @@ async function loadFiles(list) {
   }
   for (const r of reviews) {
     const base = (typeof r.parsed.source_file === "string" ? baseOf(r.parsed.source_file) : baseOf(r.name).replace(/\.review$/i, "")).normalize("NFC");
-    const entry = { base, hash: hash(r.raw), json: null, text: takeText(base), review: null, error: null, fromReview: true };
+    const entry = { base, hash: hash(r.raw), json: null, text: takeText(base), review: null, error: null, fromReview: true, blank: !!r.parsed.blank_record };
     try { entry.review = restoreAutosave(base, entry.hash) || reviewFromExport(r.parsed); nRev++; }
     catch (e) { entry.error = "Can't reopen this review: " + e.message + "."; errors++; }
     S.files.set(base, entry);
+  }
+  // Texts with no record file: the pipeline writes none when it finds no organizations,
+  // so start a blank record the reviewer can fill in (or confirm as empty).
+  for (const [base, text] of Array.from(S.pendingText)) {
+    const h0 = hash("blank:" + base);
+    S.files.set(base, { base, hash: h0, json: { people: [] }, text, error: null, fromReview: false, blank: true,
+      review: restoreAutosave(base, h0) || buildReview({ people: [] }) });
+    S.pendingText.delete(base); nBlank++;
   }
   refreshCatCodes();
   if (!S.current || !S.files.get(S.current)?.review) {
@@ -508,17 +522,17 @@ async function loadFiles(list) {
   }
   S.open.clear();
   renderAll();
-  const nTxt = txts.length, orphan = txts.filter(t => !S.files.has(t.base)).length;
+  const nTxt = txts.length;
   const parts = [];
   if (nOrig) parts.push(`${nOrig} record file${nOrig > 1 ? "s" : ""}`);
   if (nRev) parts.push(`${nRev} reviewed file${nRev > 1 ? "s" : ""}`);
   if (nTxt) parts.push(`${nTxt} source file${nTxt > 1 ? "s" : ""}`);
-  let msg = parts.length ? "Loaded " + parts.join(", ") + "." : keptReviewed ? "" : "No record, review or source files found in that selection.";
+  let msg = parts.length ? "Loaded " + parts.join(", ") + "." : (keptReviewed || keptBlank) ? "" : "No record, review or source files found in that selection.";
   if (keptReviewed) msg += ` Kept the reviewed version of ${keptReviewed} file${keptReviewed > 1 ? "s" : ""} that ${keptReviewed > 1 ? "are" : "is"} already open instead of loading the original.`;
-  msg = msg.trim();
-  if (orphan) msg += ` ${orphan} source file${orphan > 1 ? "s have" : " has"} no matching record yet.`;
+  if (nBlank) msg += ` ${nBlank} text${nBlank > 1 ? "s have" : " has"} no record file, so ${nBlank > 1 ? "blank records were" : "a blank record was"} started.`;
+  if (keptBlank) msg += ` ${keptBlank} record file${keptBlank > 1 ? "s were" : " was"} not loaded because work had already started on a blank record for the same text. To use the model's record instead, reload the page and load it together with its text.`;
   if (errors) msg += ` ${errors} file${errors > 1 ? "s" : ""} could not be read.`;
-  toast(msg, 6000);
+  toast(msg.trim(), 6000);
 }
 const sortedBases = () => Array.from(S.files.keys()).sort((a, b) => a.localeCompare(b, "ru"));
 
@@ -558,10 +572,12 @@ function fileItem(f) {
     ["correct", "edited", "deleted", "added", "duplicate", "unreviewed"].map(s => c[s] ? h("span", { class: "c-" + s, style: `width:${(c[s] / c.total) * 100}%` }) : null));
   let meta, warn = false;
   if (f.review.savedAt && !f.review.dirtySinceSave) meta = "Downloaded";
+  else if (c.emptyPending) meta = "Not reviewed yet";
   else if (c.unreviewed) meta = `${c.total - c.unreviewed} of ${c.total} decided`;
   else if (c.invalid) { meta = "Needs a fix before saving"; warn = true; }
   else meta = f.review.savedAt ? "Changed since last download" : "Finished";
-  const noText = f.text == null ? h("span", { class: "file-meta warn" }, "No matching .txt loaded") : null;
+  const noText = f.text == null ? h("span", { class: "file-meta warn" }, "No matching .txt loaded")
+    : f.blank ? h("span", { class: "file-meta" }, "Blank record: no model output") : null;
   return h("button", { class: "file-btn", "aria-current": f.base === S.current ? "true" : "false", onclick: () => selectFile(f.base) },
     h("span", { class: "file-name" }, f.base), bar, h("span", { class: "file-meta" + (warn ? " warn" : "") }, meta), noText);
 }
@@ -654,8 +670,16 @@ function renderTree() {
   const body = $("treeBody"), f = cur(), pane = body.parentElement, top = pane.scrollTop;
   renderHead();
   if (!f) { body.replaceChildren(); return; }
+  const r = f.review, emptyPanel = r.people.length ? null : h("div", { class: "empty-doc" + (r.confirmedEmpty ? " done" : ""), id: "emptyDoc" },
+    h("p", null, f.blank
+      ? "The pipeline produced no record for this text. Add any people and organizations the text mentions, or confirm there is nothing to add."
+      : "The model found no people in this text. Add any the text mentions, or confirm there is nothing to add."),
+    r.confirmedEmpty
+      ? [h("p", null, "Marked as having nothing to add."), h("button", { onclick: () => { r.confirmedEmpty = false; renderTree(); touch(); } }, "Undo")]
+      : h("button", { class: "act-ok", onclick: () => { r.confirmedEmpty = true; r.emptyAt = nowIso(); renderTree(); touch(); } }, "Nothing to add"));
   body.replaceChildren(
-    ...f.review.people.map(p => renderNode(p, 0, false)),
+    ...r.people.map(p => renderNode(p, 0, false)),
+    emptyPanel,
     h("div", { class: "add-row" }, h("button", { onclick: () => addChild(null, "person") }, "Add person")));
   pane.scrollTop = top;
 }
@@ -855,6 +879,10 @@ function addChild(parent, kind) {
 function jumpToNext() {
   const f = cur(); if (!f) return;
   let target = null;
+  if (!f.review.people.length && !f.review.confirmedEmpty) {
+    const el = $("emptyDoc"); if (el) { el.scrollIntoView({ block: "center" }); el.querySelector("button")?.focus({ preventScroll: true }); }
+    return;
+  }
   const targets = dupTargets(f.review);
   eachLive(f.review, n => { if (!target && (status(n) === "unreviewed" || (status(n) !== "deleted" && invalid(n, targets)))) target = n; });
   if (!target) { toast("Every item in this file has a decision."); return; }
@@ -1009,7 +1037,8 @@ function buildExport(f, reviewer) {
       organizations: p.children.filter(c => status(c) !== "deleted").map(outOrg) };
   }) };
   const ts = nowIso();
-  return { format: "extraction-review/2", source_file: f.base + ".json", reviewer, exported_at: ts,
+  return { format: "extraction-review/2", source_file: f.base + ".json", source_text: f.base + ".txt",
+    blank_record: !!f.blank, confirmed_empty: !f.review.people.length && !!f.review.confirmedEmpty, reviewer, exported_at: ts,
     review_history: (f.review.history || []).concat([{ reviewer, exported_at: ts }]),
     summary: { by_kind: byKind, field_scores: fieldScores(counts) }, corrected, log };
 }
@@ -1041,6 +1070,7 @@ function batchSummary(exports, reviewer) {
 
 function gate(f) {
   const c = tally(f.review);
+  if (c.emptyPending) return "This file has no people or organizations yet. Add them, or confirm there is nothing to add.";
   if (c.unreviewed) return `${c.unreviewed} item${c.unreviewed > 1 ? "s" : ""} in this file still need${c.unreviewed > 1 ? "" : "s"} a decision.`;
   if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix, shown in red on the item.`;
   return null;
