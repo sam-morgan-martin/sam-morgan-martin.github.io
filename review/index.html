@@ -240,7 +240,7 @@ const LABEL = {
   org_name: "Organization", title: "Title", categories: "Categories", year_month_spans: "Dates",
   town_city: "City", region: "Region", country: "Country"
 };
-const SPAN_RE = /^\d{4}-\d{2}:\d{4}-\d{2}$/;
+const SPAN_RE = /^\d{4}-\d{2}:(\d{4}-\d{2}|present)$/i;
 const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added" };
 const STORE = "xr1:";
 
@@ -287,7 +287,7 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { 
 
 /* ---------- model ---------- */
 function norm(f, v) {
-  if (f === "year_month_spans") { const a = (v || []).map(s => String(s).trim()); return a.length ? a : null; }
+  if (f === "year_month_spans") { const a = (v || []).map(s => String(s).trim().replace(/:present$/i, ":present")); return a.length ? a : null; }
   if (f === "categories") return (v || []).map(s => String(s).trim()).filter(Boolean);
   if (v == null) return null;
   const t = String(v).trim(); return t === "" ? null : t;
@@ -625,7 +625,7 @@ function fillField(wrap, n, f, dis) {
     const list = n.cur.year_month_spans || [];
     const rows = list.map((v, i) => {
       const inp = h("input", { value: v, placeholder: "YYYY-MM:YYYY-MM", disabled: dis, id: i === 0 ? id : null,
-        "aria-label": `Date range ${i + 1}`, title: "Use 00 for an unknown month and 0000 for an unknown year", class: SPAN_RE.test(String(v).trim()) ? null : "bad" });
+        "aria-label": `Date range ${i + 1}`, title: "Use 00 for an unknown month, 0000 for an unknown year, and present for an ongoing role (e.g. 2008-00:present)", class: SPAN_RE.test(String(v).trim()) ? null : "bad" });
       inp.addEventListener("input", () => {
         n.cur.year_month_spans[i] = inp.value;
         inp.classList.toggle("bad", !SPAN_RE.test(inp.value.trim()));
@@ -743,7 +743,7 @@ function buildExport(f, reviewer) {
 function gate(f) {
   const c = tally(f.review);
   if (c.unreviewed) return `${c.unreviewed} item${c.unreviewed > 1 ? "s" : ""} in this file still need${c.unreviewed > 1 ? "" : "s"} a decision.`;
-  if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix: a date not in YYYY-MM:YYYY-MM form, or a new entry with no name.`;
+  if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix: a date not in YYYY-MM:YYYY-MM or YYYY-MM:present form, or a new entry with no name.`;
   return null;
 }
 function reviewerName() {
