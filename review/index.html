@@ -17,6 +17,7 @@
   --line: #C6D0DA;
   --field: #FFFFFF;
   --accent: #2F5DA8;
+  --dup: #1D7C86;
   --ok: #2B7A5F;
   --edit: #A4651A;
   --del: #A63846;
@@ -34,13 +35,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
-    --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
+    --line: #34424F; --field: #151E27; --accent: #7BA3E6; --dup: #5CC3CC; --ok: #5DBB95; --edit: #E0A155;
     --del: #E07A86; --unrev: #7C8A98; --leak: #B99BEB; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
-  --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
+  --line: #34424F; --field: #151E27; --accent: #7BA3E6; --dup: #5CC3CC; --ok: #5DBB95; --edit: #E0A155;
   --del: #E07A86; --unrev: #7C8A98; --leak: #B99BEB; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: inherit; }
@@ -99,7 +100,7 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .bar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--line); }
 .bar span { display: block; height: 100%; }
 .c-correct { background: var(--ok); } .c-edited { background: var(--edit); }
-.c-deleted { background: var(--del); } .c-added { background: var(--accent); }
+.c-deleted { background: var(--del); } .c-added { background: var(--accent); } .c-duplicate { background: var(--dup); }
 .c-unreviewed { background: transparent; }
 
 /* source */
@@ -136,6 +137,9 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .node.st-edited { --rail: var(--edit); border-left-style: solid; }
 .node.st-deleted { --rail: var(--del); border-left-style: solid; }
 .node.st-added { --rail: var(--accent); border-left-style: solid; }
+.node.st-duplicate { --rail: var(--dup); border-left-style: solid; }
+.problem { flex-basis: 100%; font-size: 12.5px; color: var(--del); padding-left: 30px; }
+.problem:empty { display: none; }
 .node.flash { animation: flash 1.2s ease-out 1; }
 @keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 @media (prefers-reduced-motion: reduce) { .node.flash { animation: none; outline: 2px solid var(--accent); } }
@@ -252,7 +256,7 @@ const LABEL = {
   town_city: "City", region: "Region", country: "Country"
 };
 const SPAN_RE = /^\d{4}-\d{2}:(\d{4}-\d{2}|present)$/i;
-const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added" };
+const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added", duplicate: "Duplicate" };
 const STORE = "xr1:";
 
 const S = {
@@ -317,11 +321,12 @@ const fieldsOf = n => n.kind === "person" ? PF : OF;
 const changed = n => !n.added && fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f]));
 // Data leakage: a value that is correct but not supported by the source text.
 // Only possible on items the model produced, and only while the field has a value.
-const canLeak = (n, f) => !n.added && !isEmptyField(f, n.cur[f]);
+const canLeak = (n, f) => !n.added && !n.dup && !isEmptyField(f, n.cur[f]);
 const isLeak = (n, f) => !!(n.leak && n.leak[f]) && canLeak(n, f);
 const leakCount = n => fieldsOf(n).filter(f => isLeak(n, f)).length;
 
 function status(n) {
+  if (n.dup) return "duplicate";
   if (n.added) return "added";
   if (n.decision === "delete") return "deleted";
   if (n.decision === "accept") return changed(n) ? "edited" : "correct";
@@ -360,14 +365,22 @@ function eachLive(review, cb) {
   const visit = (n, depth) => { cb(n, depth); if (status(n) !== "deleted") n.children.forEach(c => visit(c, depth + 1)); };
   review.people.forEach(p => visit(p, 0));
 }
-function invalid(n) {
-  if (n.kind === "person") return n.added && !norm("name", n.cur.name);
-  if (n.added && !norm("org_name", n.cur.org_name)) return true;
-  return (n.cur.year_month_spans || []).some(s => !SPAN_RE.test(String(s).trim()));
+// Ids of organizations that have a live duplicate (the model merged two spells there).
+function dupTargets(review) { const t = new Set(); eachLive(review, n => { if (n.dup) t.add(n.dup); }); return t; }
+function problem(n, targets) {
+  if (n.kind === "person") return n.added && !norm("name", n.cur.name) ? "Add a name for this person." : null;
+  if (n.added && !norm("org_name", n.cur.org_name)) return "Add a name for this organization.";
+  if ((n.cur.year_month_spans || []).some(s => !SPAN_RE.test(String(s).trim()))) return "Fix the dates: use YYYY-MM:YYYY-MM or YYYY-MM:present.";
+  if (n.dup && !cleanList("year_month_spans", n.cur.year_month_spans).length) return "Add the dates for this duplicate.";
+  if (targets && targets.has(n.id) && eq("year_month_spans", n.orig.year_month_spans, n.cur.year_month_spans))
+    return "Split the dates: this organization still has the model's merged dates.";
+  return null;
 }
+const invalid = (n, targets) => !!problem(n, targets);
 function tally(review) {
-  const c = { correct: 0, edited: 0, deleted: 0, added: 0, unreviewed: 0, total: 0, invalid: 0, leak: 0 };
-  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted") { if (invalid(n)) c.invalid++; c.leak += leakCount(n); } });
+  const c = { correct: 0, edited: 0, deleted: 0, added: 0, duplicate: 0, unreviewed: 0, total: 0, invalid: 0, leak: 0 };
+  const targets = dupTargets(review);
+  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted") { if (invalid(n, targets)) c.invalid++; c.leak += leakCount(n); } });
   return c;
 }
 function findNode(review, id) {
@@ -421,13 +434,14 @@ function reviewFromExport(x) {
   let maxNew = 0;
   for (const e of x.log) {
     const kind = e.kind === "person" ? "person" : "org", fields = kind === "person" ? PF : OF;
-    const added = e.status === "added", deleted = e.status === "deleted";
+    const added = e.status === "added", deleted = e.status === "deleted", dup = e.duplicate_of || null;
     const val = (f, v) => clone(v ?? (f === "categories" ? [] : null));
     const orig = added ? null : Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.model)]));
     const cur = Object.fromEntries(fields.map(f => [f, val(f, deleted ? e.fields?.[f]?.model : e.fields?.[f]?.corrected)]));
-    const leak = {}; if (!added && !deleted) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
+    const leak = {}; if (!added && !deleted && !dup) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
     const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
+    if (dup) { n.dup = dup; n.decision = "accept"; n.cur = Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.corrected ?? (f === "year_month_spans" ? null : e.fields?.[f]?.model))])); }
     const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
     byId.set(n.id, n);
     if (e.parent_id == null) people.push(n);
@@ -541,7 +555,7 @@ function fileItem(f) {
   if (f.error) return h("div", { class: "file-btn" }, h("span", { class: "file-name" }, f.base), h("span", { class: "file-meta warn" }, f.error));
   const c = tally(f.review);
   const bar = h("span", { class: "bar", "aria-hidden": "true" },
-    ["correct", "edited", "deleted", "added", "unreviewed"].map(s => c[s] ? h("span", { class: "c-" + s, style: `width:${(c[s] / c.total) * 100}%` }) : null));
+    ["correct", "edited", "deleted", "added", "duplicate", "unreviewed"].map(s => c[s] ? h("span", { class: "c-" + s, style: `width:${(c[s] / c.total) * 100}%` }) : null));
   let meta, warn = false;
   if (f.review.savedAt && !f.review.dirtySinceSave) meta = "Downloaded";
   else if (c.unreviewed) meta = `${c.total - c.unreviewed} of ${c.total} decided`;
@@ -628,7 +642,7 @@ function renderHead() {
   const c = tally(f.review);
   head.replaceChildren(
     h("div", { class: "tally", "aria-label": "Review progress" },
-      ["unreviewed", "correct", "edited", "deleted", "added"].map(s =>
+      ["unreviewed", "correct", "edited", "deleted", "added", "duplicate"].filter(s => s !== "duplicate" || c[s]).map(s =>
         h("span", { class: "t-" + s }, h("i", { class: "c-" + s, style: s === "unreviewed" ? "border:1px dashed var(--unrev)" : null }), `${STATUS_TEXT[s]} ${c[s]}`)),
       h("span", { class: "t-leak", title: "Fields marked as data leakage" }, `Leakage ${c.leak}`)),
     h("div", { class: "head-actions" },
@@ -652,7 +666,7 @@ function nodeLabel(n) {
   if (n.kind === "person") return norm("name", n.cur.name) || "Unnamed person";
   return norm("org_name", n.cur.org_name) || "Unnamed organization";
 }
-function kindText(n, depth) { return n.kind === "person" ? "Person" : depth > 1 ? "Sub-organization" : "Organization"; }
+function kindText(n, depth) { const k = n.kind === "person" ? "Person" : depth > 1 ? "Sub-organization" : "Organization"; return n.dup ? k + " (second spell)" : k; }
 
 function actionButtons(n, locked) {
   if (locked) return [];
@@ -662,7 +676,11 @@ function actionButtons(n, locked) {
   if (s === "correct") B.push(h("button", { onclick: set(null) }, "Undo"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
   if (s === "edited") B.push(h("button", { onclick: () => revert(n) }, "Revert edits"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
   if (s === "deleted") B.push(h("button", { onclick: set(null) }, "Restore"));
-  if (s === "added") B.push(h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove"));
+  if (s === "added" || s === "duplicate") B.push(h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove"));
+  if (n.kind === "org" && ["unreviewed", "correct", "edited"].includes(s))
+    B.push(h("button", { onclick: () => duplicateOrg(n), title: "The model merged two separate spells at this organization into one. Makes a copy for the second spell." }, "Duplicate"));
+  if (s !== "deleted" && s !== "added" && s !== "duplicate" && hasDup(n))
+    B.forEach(b => { if (b.textContent === "Delete") { b.disabled = true; b.title = "Remove this organization's duplicates first"; } });
   if (s !== "deleted" && cur()?.text != null) B.push(h("button", { class: "quiet", onclick: () => findInText(searchLabel(n)) }, "Find in text"));
   return B;
 }
@@ -685,6 +703,7 @@ function renderNode(n, depth, locked) {
     h("span", { class: "node-title" }, nodeLabel(n)),
     h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
     h("span", { class: "leak-count" }, !locked && s !== "deleted" && leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
+    h("span", { class: "problem" }, !locked && s !== "deleted" ? (problem(n, curTargets()) || "") : ""),
     h("span", { class: "actions" }, actionButtons(n, locked)));
   el.append(head);
   if (open) {
@@ -704,7 +723,7 @@ function display(f, v) {
   if (x == null || (Array.isArray(x) && !x.length)) return "empty";
   return Array.isArray(x) ? x.join(", ") : x;
 }
-function wasText(n, f) { return (!n.added && !eq(f, n.orig[f], n.cur[f])) ? "Model: " + display(f, n.orig[f]) : ""; }
+function wasText(n, f) { return (!n.added && !(n.dup && f === "year_month_spans") && !eq(f, n.orig[f], n.cur[f])) ? "Model: " + display(f, n.orig[f]) : ""; }
 
 function fieldGrid(n, dis) {
   const spans = n.kind === "person"
@@ -722,7 +741,7 @@ function fillField(wrap, n, f, dis) {
   wrap.classList.toggle("changed", !!wasText(n, f));
   const label = h("label", { class: "fld-label", for: id }, LABEL[f]);
   const was = h("span", { class: "was" }, wasText(n, f));
-  const leakBtn = n.added ? null : h("button", { class: "leak-btn", type: "button", "aria-pressed": String(isLeak(n, f)),
+  const leakBtn = (n.added || n.dup) ? null : h("button", { class: "leak-btn", type: "button", "aria-pressed": String(isLeak(n, f)),
     disabled: dis || !canLeak(n, f), "aria-label": `Data leakage: ${LABEL[f]}`,
     title: "Data leakage: the value is correct but not supported by the source text (probably from the model's training data)",
     onclick: () => { n.leak ||= {}; if (isLeak(n, f)) delete n.leak[f]; else n.leak[f] = true; onEdit(n, f); syncLeak(wrap, n, f, dis); } }, "Leakage");
@@ -783,13 +802,14 @@ function refreshChrome(n) {
   el.className = el.className.replace(/\bst-\w+/, "st-" + s);
   el.querySelector(":scope > .node-head .badge").textContent = STATUS_TEXT[s];
   const lc = leakCount(n); el.querySelector(":scope > .node-head .leak-count").textContent = lc ? `Leakage ${lc}` : "";
+  el.querySelector(":scope > .node-head .problem").textContent = s !== "deleted" ? (problem(n, curTargets()) || "") : "";
   el.querySelector(":scope > .node-head .actions").replaceChildren(...actionButtons(n, false));
 }
 
 /* ---------- edits ---------- */
 function onEdit(n, f) {
   if (f && n.leak && n.leak[f] && !canLeak(n, f)) delete n.leak[f];   // emptied fields can't be leakage
-  if (!n.added) {
+  if (!n.added && !n.dup) {
     const ch = changed(n) || leakCount(n) > 0;
     if (ch && n.decision === null) { n.decision = "accept"; n.auto = true; }
     else if (!ch && n.auto && n.decision === "accept") { n.decision = null; n.auto = false; }
@@ -806,6 +826,21 @@ function revert(n) {
   n.cur = clone(n.orig); n.leak = {}; n.decision = null; n.auto = false; n.t = nowIso();
   renderTree(); touch();
 }
+const curTargets = () => cur() ? dupTargets(cur().review) : new Set();
+const hasDup = n => curTargets().has(n.id);
+function duplicateOrg(n) {
+  const f = cur(), r = findNode(f.review, n.id); if (!r) return;
+  const d = newNode(f.review, "org");
+  d.dup = n.id; d.added = false; d.decision = "accept";
+  d.orig = clone(n.orig); d.orig.year_month_spans = null;      // the model gave no dates for the second spell
+  d.cur = clone(n.cur); d.cur.year_month_spans = null;
+  let at = r.idx + 1; while (at < r.list.length && r.list[at].dup === n.id) at++;
+  r.list.splice(at, 0, d);
+  S.open.set(d.id, true); S.open.set(n.id, true);
+  renderTree(); touch();
+  const el = nodeEl(d);
+  if (el) { el.scrollIntoView({ block: "center" }); el.querySelector('[data-field="year_month_spans"] button')?.focus({ preventScroll: true }); }
+}
 function removeAdded(n) {
   const f = cur(), r = findNode(f.review, n.id); if (!r) return;
   r.list.splice(r.idx, 1); renderTree(); touch();
@@ -820,7 +855,8 @@ function addChild(parent, kind) {
 function jumpToNext() {
   const f = cur(); if (!f) return;
   let target = null;
-  eachLive(f.review, n => { if (!target && (status(n) === "unreviewed" || (status(n) !== "deleted" && invalid(n)))) target = n; });
+  const targets = dupTargets(f.review);
+  eachLive(f.review, n => { if (!target && (status(n) === "unreviewed" || (status(n) !== "deleted" && invalid(n, targets)))) target = n; });
   if (!target) { toast("Every item in this file has a decision."); return; }
   const r = findNode(f.review, target.id); r.anc.forEach(a => S.open.set(a.id, true)); S.open.set(target.id, true);
   renderTree();
@@ -847,6 +883,7 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      empty     empty in both
      node_deleted  the whole node was deleted; a model value here is an FP
      node_added    the reviewer added the node; a value here is an FN
+     duplicated    copied onto a duplicate (second spell) unchanged: not counted
    Separately, a kept field can be marked as data leakage (correct, but not supported by the text).
    "<unknown>" and the date range 0000-00:0000-00 count as empty. List fields (categories, dates) are also scored item by item. */
 const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
@@ -854,6 +891,19 @@ const itemSet = (f, v) => new Set(cleanList(f, v));
 function scoreField(f, mRaw, cRaw, mode) {
   const m = norm(f, mRaw), c = norm(f, cRaw), list = LIST_FIELDS.has(f);
   const r = { model: mode === "added" ? null : m, corrected: mode === "deleted" ? null : c };
+  if (mode === "duplicate_deleted") { r.outcome = "duplicated"; if (list) r.items = { tp: 0, fp: 0, fn: 0 }; return r; }
+  if (mode === "duplicate") {
+    // Second spell split off a merged organization: not a missed organization.
+    // Its dates were never produced by the model, so they count as missing; other fields
+    // copied from the original are neutral unless the reviewer changes them.
+    if (f === "year_month_spans") { r.model = null; const n = itemSet(f, c).size; r.outcome = n ? "missing" : "empty"; r.items = { tp: 0, fp: 0, fn: n }; return r; }
+    if (list) {
+      const ms = itemSet(f, m), cs = itemSet(f, c), fn = Array.from(cs).filter(x => !ms.has(x)).length;
+      r.items = { tp: 0, fp: 0, fn }; r.outcome = fn ? "missing" : cs.size ? "duplicated" : "empty"; return r;
+    }
+    r.outcome = isEmptyField(f, c) ? "empty" : eq(f, m, c) ? "duplicated" : "missing";
+    return r;
+  }
   if (mode === "deleted") {
     r.outcome = isEmptyField(f, m) ? "empty" : "node_deleted";
     if (list) r.items = { tp: 0, fp: itemSet(f, m).size, fn: 0 };
@@ -876,7 +926,7 @@ function scoreField(f, mRaw, cRaw, mode) {
   }
   return r;
 }
-const OUTCOMES = ["correct", "wrong", "missing", "spurious", "empty", "node_deleted", "node_added"];
+const OUTCOMES = ["correct", "wrong", "missing", "spurious", "empty", "duplicated", "node_deleted", "node_added"];
 function newCounts(f) {
   const c = { outcomes: Object.fromEntries(OUTCOMES.map(o => [o, 0])), leakage: 0, leakage_by_outcome: Object.fromEntries(OUTCOMES.map(o => [o, 0])) };
   if (LIST_FIELDS.has(f)) { c.items_kept_nodes = { tp: 0, fp: 0, fn: 0 }; c.items_added_or_deleted_nodes = { fp: 0, fn: 0 }; }
@@ -926,7 +976,7 @@ function fieldScores(counts) {
 }
 function mergeByKind(acc, byKind) {
   for (const [k, v] of Object.entries(byKind)) {
-    const a = acc[k] ||= { correct: 0, edited: 0, deleted: 0, added: 0 };
+    const a = acc[k] ||= { correct: 0, edited: 0, deleted: 0, added: 0, duplicate: 0 };
     for (const s of Object.keys(a)) a[s] += v[s] || 0;
   }
   return acc;
@@ -935,10 +985,11 @@ function mergeByKind(acc, byKind) {
 function buildExport(f, reviewer) {
   const log = [], byKind = {}, counts = {};
   const visit = (n, parentId, depth, via) => {
-    const st = via ? "deleted" : status(n);
+    const st = n.dup ? "duplicate" : via ? "deleted" : status(n);
     const kind = n.kind === "person" ? "person" : depth > 1 ? "sub_organization" : "organization";
-    const mode = st === "deleted" ? "deleted" : st === "added" ? "added" : "kept";
-    const e = { node_id: n.id, kind, parent_id: parentId, original_path: n.added ? null : n.path, status: st };
+    const mode = n.dup ? (via ? "duplicate_deleted" : "duplicate") : st === "deleted" ? "deleted" : st === "added" ? "added" : "kept";
+    const e = { node_id: n.id, kind, parent_id: parentId, original_path: (n.added || n.dup) ? null : n.path, status: st };
+    if (n.dup) { e.duplicate_of = n.dup; e.duplicate_of_path = findNode(f.review, n.dup)?.node.path ?? null; }
     if (via) e.deleted_with_parent = true;
     if (n.t && !via) e.decided_at = n.t;
     e.fields = {};
@@ -948,7 +999,7 @@ function buildExport(f, reviewer) {
       e.fields[k] = r; addToCounts(counts, k, r);
     });
     log.push(e);
-    (byKind[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0 })[st]++;
+    (byKind[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0, duplicate: 0 })[st]++;
     n.children.forEach(c => visit(c, n.id, depth + 1, via || st === "deleted"));
   };
   f.review.people.forEach(p => visit(p, null, 0, false));
@@ -969,10 +1020,10 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function outcomesCsv(exports) {
-  const head = ["file", "node_id", "kind", "node_status", "original_path", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
+  const head = ["file", "node_id", "kind", "node_status", "original_path", "duplicate_of", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
   const rows = [head.join(",")];
   for (const x of exports) for (const e of x.log) for (const [f, r] of Object.entries(e.fields)) {
-    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
+    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, e.duplicate_of, f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
       r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
   }
   return "\uFEFF" + rows.join("\r\n") + "\r\n";
@@ -991,7 +1042,7 @@ function batchSummary(exports, reviewer) {
 function gate(f) {
   const c = tally(f.review);
   if (c.unreviewed) return `${c.unreviewed} item${c.unreviewed > 1 ? "s" : ""} in this file still need${c.unreviewed > 1 ? "" : "s"} a decision.`;
-  if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix: a date not in YYYY-MM:YYYY-MM or YYYY-MM:present form, or a new entry with no name.`;
+  if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix, shown in red on the item.`;
   return null;
 }
 function reviewerName() {
