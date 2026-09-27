@@ -21,6 +21,7 @@
   --edit: #A4651A;
   --del: #A63846;
   --unrev: #8795A4;
+  --leak: #7446B0;
   --mark: #FCE38A;
   --mark-cur: #F2B233;
   --sans: "PT Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -34,13 +35,13 @@
   :root:not([data-theme="light"]) {
     --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
     --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
-    --del: #E07A86; --unrev: #7C8A98; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
+    --del: #E07A86; --unrev: #7C8A98; --leak: #B99BEB; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
   --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
-  --del: #E07A86; --unrev: #7C8A98; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
+  --del: #E07A86; --unrev: #7C8A98; --leak: #B99BEB; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: inherit; }
 html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
@@ -159,6 +160,16 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .fld.changed input { border-color: var(--edit); }
 .was { font-size: 12px; color: var(--edit); overflow-wrap: anywhere; }
 .was:empty { display: none; }
+.fld-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 20px; }
+.leak-btn { font-size: 11.5px; line-height: 1.4; padding: 0 7px; border-radius: 10px; color: var(--muted); background: transparent; }
+.leak-btn[aria-pressed="true"] { background: var(--leak); border-color: var(--leak); color: #fff; }
+:root[data-theme="dark"] .leak-btn[aria-pressed="true"] { color: #1A1030; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .leak-btn[aria-pressed="true"] { color: #1A1030; } }
+.leak-btn:disabled { opacity: .35; cursor: default; }
+.fld.leak > input, .fld.leak .span-row input, .fld.leak .chips { border-color: var(--leak); box-shadow: inset 3px 0 0 var(--leak); }
+.leak-count { font-size: 12px; color: var(--leak); }
+.leak-count:empty { display: none; }
+.tally .t-leak { border-color: var(--leak); color: var(--leak); }
 .chips {
   display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   border: 1px solid var(--line); border-radius: 4px; padding: 3px; background: var(--field); min-height: 32px;
@@ -304,6 +315,11 @@ function cmpVal(f, v) {
 const eq = (f, a, b) => JSON.stringify(cmpVal(f, a)) === JSON.stringify(cmpVal(f, b));
 const fieldsOf = n => n.kind === "person" ? PF : OF;
 const changed = n => !n.added && fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f]));
+// Data leakage: a value that is correct but not supported by the source text.
+// Only possible on items the model produced, and only while the field has a value.
+const canLeak = (n, f) => !n.added && !isEmptyField(f, n.cur[f]);
+const isLeak = (n, f) => !!(n.leak && n.leak[f]) && canLeak(n, f);
+const leakCount = n => fieldsOf(n).filter(f => isLeak(n, f)).length;
 
 function status(n) {
   if (n.added) return "added";
@@ -350,8 +366,8 @@ function invalid(n) {
   return (n.cur.year_month_spans || []).some(s => !SPAN_RE.test(String(s).trim()));
 }
 function tally(review) {
-  const c = { correct: 0, edited: 0, deleted: 0, added: 0, unreviewed: 0, total: 0, invalid: 0 };
-  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted" && invalid(n)) c.invalid++; });
+  const c = { correct: 0, edited: 0, deleted: 0, added: 0, unreviewed: 0, total: 0, invalid: 0, leak: 0 };
+  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted") { if (invalid(n)) c.invalid++; c.leak += leakCount(n); } });
   return c;
 }
 function findNode(review, id) {
@@ -409,7 +425,8 @@ function reviewFromExport(x) {
     const val = (f, v) => clone(v ?? (f === "categories" ? [] : null));
     const orig = added ? null : Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.model)]));
     const cur = Object.fromEntries(fields.map(f => [f, val(f, deleted ? e.fields?.[f]?.model : e.fields?.[f]?.corrected)]));
-    const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, auto: false, added, t: e.decided_at || null, children: [],
+    const leak = {}; if (!added && !deleted) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
+    const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
     const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
     byId.set(n.id, n);
@@ -612,7 +629,8 @@ function renderHead() {
   head.replaceChildren(
     h("div", { class: "tally", "aria-label": "Review progress" },
       ["unreviewed", "correct", "edited", "deleted", "added"].map(s =>
-        h("span", { class: "t-" + s }, h("i", { class: "c-" + s, style: s === "unreviewed" ? "border:1px dashed var(--unrev)" : null }), `${STATUS_TEXT[s]} ${c[s]}`))),
+        h("span", { class: "t-" + s }, h("i", { class: "c-" + s, style: s === "unreviewed" ? "border:1px dashed var(--unrev)" : null }), `${STATUS_TEXT[s]} ${c[s]}`)),
+      h("span", { class: "t-leak", title: "Fields marked as data leakage" }, `Leakage ${c.leak}`)),
     h("div", { class: "head-actions" },
       h("button", { onclick: jumpToNext, disabled: !(c.unreviewed || c.invalid) }, "Next to review"),
       h("button", { class: "primary", onclick: () => saveOne(f) }, "Download review")));
@@ -666,6 +684,7 @@ function renderNode(n, depth, locked) {
     h("span", { class: "kind" }, kindText(n, depth)),
     h("span", { class: "node-title" }, nodeLabel(n)),
     h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
+    h("span", { class: "leak-count" }, !locked && s !== "deleted" && leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
     h("span", { class: "actions" }, actionButtons(n, locked)));
   el.append(head);
   if (open) {
@@ -703,6 +722,11 @@ function fillField(wrap, n, f, dis) {
   wrap.classList.toggle("changed", !!wasText(n, f));
   const label = h("label", { class: "fld-label", for: id }, LABEL[f]);
   const was = h("span", { class: "was" }, wasText(n, f));
+  const leakBtn = n.added ? null : h("button", { class: "leak-btn", type: "button", "aria-pressed": String(isLeak(n, f)),
+    disabled: dis || !canLeak(n, f), "aria-label": `Data leakage: ${LABEL[f]}`,
+    title: "Data leakage: the value is correct but not supported by the source text (probably from the model's training data)",
+    onclick: () => { n.leak ||= {}; if (isLeak(n, f)) delete n.leak[f]; else n.leak[f] = true; onEdit(n, f); syncLeak(wrap, n, f, dis); } }, "Leakage");
+  wrap.classList.toggle("leak", isLeak(n, f));
   let control;
   if (f === "categories") {
     const list = n.cur.categories || (n.cur.categories = []);
@@ -743,9 +767,13 @@ function fillField(wrap, n, f, dis) {
       if ((f === "org_name" || f === "name")) { const t = nodeEl(n)?.querySelector(":scope > .node-head .node-title"); if (t) t.textContent = nodeLabel(n); }
     });
   }
-  wrap.replaceChildren(label, control, was);
+  wrap.replaceChildren(h("div", { class: "fld-top" }, label, leakBtn), control, was);
 }
-function refreshWas(wrap, n, f) { const w = wasText(n, f); wrap.classList.toggle("changed", !!w); wrap.querySelector(":scope > .was").textContent = w; }
+function refreshWas(wrap, n, f) { const w = wasText(n, f); wrap.classList.toggle("changed", !!w); wrap.querySelector(":scope > .was").textContent = w; syncLeak(wrap, n, f, false); }
+function syncLeak(wrap, n, f, dis) {
+  const b = wrap.querySelector(".leak-btn"); wrap.classList.toggle("leak", isLeak(n, f));
+  if (b) { b.setAttribute("aria-pressed", String(isLeak(n, f))); b.disabled = dis || !canLeak(n, f); }
+}
 
 const nodeEl = n => $("treeBody").querySelector(`[data-id="${CSS.escape(n.id)}"]`);
 
@@ -754,13 +782,15 @@ function refreshChrome(n) {
   const s = status(n);
   el.className = el.className.replace(/\bst-\w+/, "st-" + s);
   el.querySelector(":scope > .node-head .badge").textContent = STATUS_TEXT[s];
+  const lc = leakCount(n); el.querySelector(":scope > .node-head .leak-count").textContent = lc ? `Leakage ${lc}` : "";
   el.querySelector(":scope > .node-head .actions").replaceChildren(...actionButtons(n, false));
 }
 
 /* ---------- edits ---------- */
-function onEdit(n) {
+function onEdit(n, f) {
+  if (f && n.leak && n.leak[f] && !canLeak(n, f)) delete n.leak[f];   // emptied fields can't be leakage
   if (!n.added) {
-    const ch = changed(n);
+    const ch = changed(n) || leakCount(n) > 0;
     if (ch && n.decision === null) { n.decision = "accept"; n.auto = true; }
     else if (!ch && n.auto && n.decision === "accept") { n.decision = null; n.auto = false; }
   }
@@ -773,7 +803,7 @@ function decide(n, d) {
   renderTree(); touch();
 }
 function revert(n) {
-  n.cur = clone(n.orig); n.decision = null; n.auto = false; n.t = nowIso();
+  n.cur = clone(n.orig); n.leak = {}; n.decision = null; n.auto = false; n.t = nowIso();
   renderTree(); touch();
 }
 function removeAdded(n) {
@@ -817,8 +847,9 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      empty     empty in both
      node_deleted  the whole node was deleted; a model value here is an FP
      node_added    the reviewer added the node; a value here is an FN
+   Separately, a kept field can be marked as data leakage (correct, but not supported by the text).
    "<unknown>" and the date range 0000-00:0000-00 count as empty. List fields (categories, dates) are also scored item by item. */
-const isEmptyField = (f, v) => LIST_FIELDS.has(f) ? cleanList(f, v).length === 0 : (v == null || v === UNKNOWN);
+const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
 const itemSet = (f, v) => new Set(cleanList(f, v));
 function scoreField(f, mRaw, cRaw, mode) {
   const m = norm(f, mRaw), c = norm(f, cRaw), list = LIST_FIELDS.has(f);
@@ -847,13 +878,14 @@ function scoreField(f, mRaw, cRaw, mode) {
 }
 const OUTCOMES = ["correct", "wrong", "missing", "spurious", "empty", "node_deleted", "node_added"];
 function newCounts(f) {
-  const c = { outcomes: Object.fromEntries(OUTCOMES.map(o => [o, 0])) };
+  const c = { outcomes: Object.fromEntries(OUTCOMES.map(o => [o, 0])), leakage: 0, leakage_by_outcome: Object.fromEntries(OUTCOMES.map(o => [o, 0])) };
   if (LIST_FIELDS.has(f)) { c.items_kept_nodes = { tp: 0, fp: 0, fn: 0 }; c.items_added_or_deleted_nodes = { fp: 0, fn: 0 }; }
   return c;
 }
 function addToCounts(counts, f, r) {
   const c = counts[f] ||= newCounts(f);
   c.outcomes[r.outcome]++;
+  if (r.leakage) { c.leakage++; c.leakage_by_outcome[r.outcome]++; }
   if (r.items) {
     if (r.outcome === "node_deleted" || r.outcome === "node_added") {
       c.items_added_or_deleted_nodes.fp += r.items.fp; c.items_added_or_deleted_nodes.fn += r.items.fn;
@@ -863,7 +895,8 @@ function addToCounts(counts, f, r) {
 function mergeCounts(acc, counts) {
   for (const [f, c] of Object.entries(counts)) {
     const a = acc[f] ||= newCounts(f);
-    OUTCOMES.forEach(o => a.outcomes[o] += c.outcomes[o] || 0);
+    OUTCOMES.forEach(o => { a.outcomes[o] += c.outcomes[o] || 0; a.leakage_by_outcome[o] += c.leakage_by_outcome?.[o] || 0; });
+    a.leakage += c.leakage || 0;
     if (c.items_kept_nodes) {
       ["tp", "fp", "fn"].forEach(k => a.items_kept_nodes[k] += c.items_kept_nodes[k] || 0);
       ["fp", "fn"].forEach(k => a.items_added_or_deleted_nodes[k] += c.items_added_or_deleted_nodes[k] || 0);
@@ -909,7 +942,11 @@ function buildExport(f, reviewer) {
     if (via) e.deleted_with_parent = true;
     if (n.t && !via) e.decided_at = n.t;
     e.fields = {};
-    fieldsOf(n).forEach(k => { const r = scoreField(k, n.orig ? n.orig[k] : null, n.cur[k], mode); e.fields[k] = r; addToCounts(counts, k, r); });
+    fieldsOf(n).forEach(k => {
+      const r = scoreField(k, n.orig ? n.orig[k] : null, n.cur[k], mode);
+      r.leakage = mode === "kept" && isLeak(n, k);
+      e.fields[k] = r; addToCounts(counts, k, r);
+    });
     log.push(e);
     (byKind[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0 })[st]++;
     n.children.forEach(c => visit(c, n.id, depth + 1, via || st === "deleted"));
@@ -932,10 +969,10 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function outcomesCsv(exports) {
-  const head = ["file", "node_id", "kind", "node_status", "original_path", "field", "model", "corrected", "outcome", "item_tp", "item_fp", "item_fn"];
+  const head = ["file", "node_id", "kind", "node_status", "original_path", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
   const rows = [head.join(",")];
   for (const x of exports) for (const e of x.log) for (const [f, r] of Object.entries(e.fields)) {
-    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, f, r.model, r.corrected, r.outcome,
+    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
       r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
   }
   return "\uFEFF" + rows.join("\r\n") + "\r\n";
@@ -944,7 +981,7 @@ function batchSummary(exports, reviewer) {
   const counts = {}, byKind = {};
   exports.forEach(x => {
     const raw = {};
-    for (const [f, v] of Object.entries(x.summary.field_scores)) raw[f] = { outcomes: v.outcomes, items_kept_nodes: v.items_kept_nodes, items_added_or_deleted_nodes: v.items_added_or_deleted_nodes };
+    for (const [f, v] of Object.entries(x.summary.field_scores)) raw[f] = { outcomes: v.outcomes, leakage: v.leakage, leakage_by_outcome: v.leakage_by_outcome, items_kept_nodes: v.items_kept_nodes, items_added_or_deleted_nodes: v.items_added_or_deleted_nodes };
     mergeCounts(counts, raw); mergeByKind(byKind, x.summary.by_kind);
   });
   return { format: "extraction-review-summary/2", reviewer, exported_at: nowIso(), files: exports.map(x => x.source_file),
