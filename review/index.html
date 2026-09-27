@@ -200,7 +200,7 @@ body.dragging .drop-hint { display: flex; }
   <h1>Extraction review</h1>
   <label>Reviewer <input id="reviewer" type="text" autocomplete="name" placeholder="Your name"></label>
   <button id="loadBtn">Load files</button>
-  <input id="fileInput" type="file" multiple accept=".json,.txt" hidden>
+  <input id="fileInput" type="file" multiple accept=".json,.txt,.zip" hidden>
   <button id="saveAllBtn" title="Download every finished review as one .zip file">Download finished</button>
 </header>
 <main>
@@ -227,7 +227,7 @@ body.dragging .drop-hint { display: flex; }
 </main>
 <datalist id="catCodes"></datalist>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="drop-hint">Drop .json and .txt files to load them</div>
+<div class="drop-hint">Drop files here to load them</div>
 
 <script>
 (() => {
@@ -292,7 +292,16 @@ function norm(f, v) {
   if (v == null) return null;
   const t = String(v).trim(); return t === "" ? null : t;
 }
-const eq = (f, a, b) => JSON.stringify(norm(f, a)) === JSON.stringify(norm(f, b));
+const UNKNOWN = "<unknown>";
+const LIST_FIELDS = new Set(["categories", "year_month_spans"]);
+const EMPTY_SPAN = "0000-00:0000-00"; // fully unknown date range: treated as no date
+const cleanList = (f, v) => { const x = norm(f, v) || []; return f === "year_month_spans" ? x.filter(s => s !== EMPTY_SPAN) : x; };
+function cmpVal(f, v) {
+  const x = norm(f, v);
+  if (LIST_FIELDS.has(f)) { const c = cleanList(f, v); return c.length ? Array.from(new Set(c)).sort() : null; }
+  return x === UNKNOWN ? null : x;
+}
+const eq = (f, a, b) => JSON.stringify(cmpVal(f, a)) === JSON.stringify(cmpVal(f, b));
 const fieldsOf = n => n.kind === "person" ? PF : OF;
 const changed = n => !n.added && fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f]));
 
@@ -361,38 +370,124 @@ function findNode(review, id) {
 const baseOf = name => name.normalize("NFC").replace(/\.(json|txt)$/i, "");
 const readText = file => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsText(file, "utf-8"); });
 
-async function loadFiles(list) {
-  const files = Array.from(list || []);
-  let nJson = 0, nTxt = 0, orphanTxt = 0, errors = 0;
-  for (const file of files.filter(f => /\.txt$/i.test(f.name))) {
-    const base = baseOf(file.name), text = await readText(file); nTxt++;
-    if (S.files.has(base)) S.files.get(base).text = text; else { S.pendingText.set(base, text); orphanTxt++; }
+// Reads a .zip (stored or deflate) and returns [{name, text}] for the files inside.
+async function readZip(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("not a zip file");
+  const count = dv.getUint16(eocd + 10, true), out = [];
+  let p = dv.getUint32(eocd + 16, true);
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("unreadable zip directory");
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+    const path = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    const name = path.split("/").pop();
+    if (!name || path.startsWith("__MACOSX") || name.startsWith("._")) continue;
+    const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    const raw = u8.subarray(start, start + csize);
+    let data;
+    if (method === 0) data = raw;
+    else if (method === 8 && typeof DecompressionStream !== "undefined")
+      data = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+    else { out.push({ name, error: true }); continue; }
+    out.push({ name, text: dec.decode(data) });
   }
-  for (const file of files.filter(f => /\.json$/i.test(f.name))) {
-    const base = baseOf(file.name), raw = await readText(file); nJson++;
-    const entry = { base, hash: hash(raw), json: null, text: S.pendingText.get(base) ?? S.files.get(base)?.text ?? null, review: null, error: null };
-    if (entry.text != null) { S.pendingText.delete(base); if (orphanTxt) orphanTxt--; }
-    try { entry.json = JSON.parse(raw); } catch (e) { entry.error = "Not valid JSON: " + e.message; errors++; }
-    if (entry.json) {
-      const saved = lsGet(STORE + base + ":" + entry.hash);
-      let restored = null; if (saved) { try { restored = JSON.parse(saved); } catch { restored = null; } }
-      entry.review = restored || buildReview(entry.json);
-    }
+  return out;
+}
+
+// Rebuilds the working state from a downloaded .review.json so it can be edited again.
+function reviewFromExport(x) {
+  if (!x || x.format !== "extraction-review/2" || !Array.isArray(x.log)) throw new Error("made with an earlier version of this tool");
+  const byId = new Map(), people = [];
+  let maxNew = 0;
+  for (const e of x.log) {
+    const kind = e.kind === "person" ? "person" : "org", fields = kind === "person" ? PF : OF;
+    const added = e.status === "added", deleted = e.status === "deleted";
+    const val = (f, v) => clone(v ?? (f === "categories" ? [] : null));
+    const orig = added ? null : Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.model)]));
+    const cur = Object.fromEntries(fields.map(f => [f, val(f, deleted ? e.fields?.[f]?.model : e.fields?.[f]?.corrected)]));
+    const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, auto: false, added, t: e.decided_at || null, children: [],
+      decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
+    const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
+    byId.set(n.id, n);
+    if (e.parent_id == null) people.push(n);
+    else if (byId.has(e.parent_id)) byId.get(e.parent_id).children.push(n);
+    else throw new Error("its log is incomplete");
+  }
+  return { nextNew: maxNew + 1, savedAt: x.exported_at || null, dirtySinceSave: false, people,
+    history: x.review_history || (x.reviewer ? [{ reviewer: x.reviewer, exported_at: x.exported_at }] : []) };
+}
+
+function restoreAutosave(base, h) {
+  const saved = lsGet(STORE + base + ":" + h);
+  if (!saved) return null;
+  try { return JSON.parse(saved); } catch { return null; }
+}
+
+async function loadFiles(list) {
+  const items = [];
+  let errors = 0, skipped = 0;
+  for (const file of Array.from(list || [])) {
+    const lower = file.name.toLowerCase();
+    try {
+      if (lower.endsWith(".zip")) for (const z of await readZip(await file.arrayBuffer())) { if (z.error) errors++; else items.push(z); }
+      else if (lower.endsWith(".json") || lower.endsWith(".txt")) items.push({ name: file.name, text: await readText(file) });
+      else skipped++;
+    } catch { errors++; }
+  }
+  const txts = [], originals = [], reviews = [];
+  for (const it of items) {
+    const name = it.name.normalize("NFC");
+    if (/\.txt$/i.test(name)) { txts.push({ base: baseOf(name), text: it.text }); continue; }
+    if (!/\.json$/i.test(name)) { skipped++; continue; }
+    let parsed = null, err = null;
+    try { parsed = JSON.parse(it.text); } catch (e) { err = e.message; }
+    const fmt = parsed && typeof parsed.format === "string" ? parsed.format : "";
+    if (fmt.startsWith("extraction-review/")) reviews.push({ name, raw: it.text, parsed });
+    else if (fmt.startsWith("extraction-review")) skipped++;   // summary.json and similar
+    else originals.push({ name, raw: it.text, parsed, err });
+  }
+  for (const t of txts) {
+    if (S.files.has(t.base)) S.files.get(t.base).text = t.text; else S.pendingText.set(t.base, t.text);
+  }
+  const takeText = base => { const t = S.pendingText.get(base) ?? S.files.get(base)?.text ?? null; S.pendingText.delete(base); return t; };
+  let nOrig = 0, nRev = 0, keptReviewed = 0;
+  for (const o of originals) {
+    const base = baseOf(o.name);
+    if (S.files.get(base)?.fromReview) { keptReviewed++; continue; }  // a reviewed version is already open
+    const entry = { base, hash: hash(o.raw), json: o.parsed, text: takeText(base), review: null, error: null, fromReview: false };
+    if (o.err || !o.parsed) { entry.error = "Not valid JSON: " + o.err; errors++; }
+    else { entry.review = restoreAutosave(base, entry.hash) || buildReview(o.parsed); nOrig++; }
+    S.files.set(base, entry);
+  }
+  for (const r of reviews) {
+    const base = (typeof r.parsed.source_file === "string" ? baseOf(r.parsed.source_file) : baseOf(r.name).replace(/\.review$/i, "")).normalize("NFC");
+    const entry = { base, hash: hash(r.raw), json: null, text: takeText(base), review: null, error: null, fromReview: true };
+    try { entry.review = restoreAutosave(base, entry.hash) || reviewFromExport(r.parsed); nRev++; }
+    catch (e) { entry.error = "Can't reopen this review: " + e.message + "."; errors++; }
     S.files.set(base, entry);
   }
   refreshCatCodes();
-  if (!S.current || !S.files.has(S.current)) {
+  if (!S.current || !S.files.get(S.current)?.review) {
     const first = sortedBases().find(b => S.files.get(b).review);
     if (first) S.current = first;
   }
+  S.open.clear();
   renderAll();
+  const nTxt = txts.length, orphan = txts.filter(t => !S.files.has(t.base)).length;
   const parts = [];
-  if (nJson) parts.push(`${nJson} record file${nJson > 1 ? "s" : ""}`);
+  if (nOrig) parts.push(`${nOrig} record file${nOrig > 1 ? "s" : ""}`);
+  if (nRev) parts.push(`${nRev} reviewed file${nRev > 1 ? "s" : ""}`);
   if (nTxt) parts.push(`${nTxt} source file${nTxt > 1 ? "s" : ""}`);
-  let msg = parts.length ? "Loaded " + parts.join(" and ") + "." : "No .json or .txt files found in that selection.";
-  if (orphanTxt) msg += ` ${orphanTxt} source file${orphanTxt > 1 ? "s have" : " has"} no matching .json yet.`;
+  let msg = parts.length ? "Loaded " + parts.join(", ") + "." : keptReviewed ? "" : "No record, review or source files found in that selection.";
+  if (keptReviewed) msg += ` Kept the reviewed version of ${keptReviewed} file${keptReviewed > 1 ? "s" : ""} that ${keptReviewed > 1 ? "are" : "is"} already open instead of loading the original.`;
+  msg = msg.trim();
+  if (orphan) msg += ` ${orphan} source file${orphan > 1 ? "s have" : " has"} no matching record yet.`;
   if (errors) msg += ` ${errors} file${errors > 1 ? "s" : ""} could not be read.`;
-  toast(msg);
+  toast(msg, 6000);
 }
 const sortedBases = () => Array.from(S.files.keys()).sort((a, b) => a.localeCompare(b, "ru"));
 
@@ -505,6 +600,7 @@ function findInText(label) {
 function emptyState() {
   return h("div", { class: "empty" },
     h("p", null, "Load the model's .json files together with their source .txt files. Files are paired by name, so the text for “Name_part6.json” should be “Name_part6.txt”."),
+    h("p", null, "To keep working on finished reviews, load the downloaded .review.json files, or the .zip, with the same .txt files."),
     h("p", null, "You can also drag files onto this page."),
     h("button", { class: "primary", onclick: () => $("fileInput").click() }, "Load files"));
 }
@@ -712,32 +808,147 @@ function outOrg(o) {
 }
 function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, obj[f])); return o; }
 
+/* ---------- per-field scoring ----------
+   Each field of each node gets one outcome:
+     correct   model had a value and the reviewer kept it
+     wrong     model had a value and the reviewer changed it   (counts as FP + FN)
+     missing   model left it empty and the reviewer filled it  (FN)
+     spurious  model had a value and the reviewer cleared it   (FP)
+     empty     empty in both
+     node_deleted  the whole node was deleted; a model value here is an FP
+     node_added    the reviewer added the node; a value here is an FN
+   "<unknown>" and the date range 0000-00:0000-00 count as empty. List fields (categories, dates) are also scored item by item. */
+const isEmptyField = (f, v) => LIST_FIELDS.has(f) ? cleanList(f, v).length === 0 : (v == null || v === UNKNOWN);
+const itemSet = (f, v) => new Set(cleanList(f, v));
+function scoreField(f, mRaw, cRaw, mode) {
+  const m = norm(f, mRaw), c = norm(f, cRaw), list = LIST_FIELDS.has(f);
+  const r = { model: mode === "added" ? null : m, corrected: mode === "deleted" ? null : c };
+  if (mode === "deleted") {
+    r.outcome = isEmptyField(f, m) ? "empty" : "node_deleted";
+    if (list) r.items = { tp: 0, fp: itemSet(f, m).size, fn: 0 };
+    return r;
+  }
+  if (mode === "added") {
+    r.outcome = isEmptyField(f, c) ? "empty" : "node_added";
+    if (list) r.items = { tp: 0, fp: 0, fn: itemSet(f, c).size };
+    return r;
+  }
+  const me = isEmptyField(f, m), ce = isEmptyField(f, c);
+  if (me && ce) r.outcome = "empty";
+  else if (me) r.outcome = "missing";
+  else if (ce) r.outcome = "spurious";
+  else r.outcome = eq(f, m, c) ? "correct" : "wrong";
+  if (list) {
+    const ms = itemSet(f, m), cs = itemSet(f, c);
+    const tp = Array.from(ms).filter(x => cs.has(x)).length;
+    r.items = { tp, fp: ms.size - tp, fn: cs.size - tp };
+  }
+  return r;
+}
+const OUTCOMES = ["correct", "wrong", "missing", "spurious", "empty", "node_deleted", "node_added"];
+function newCounts(f) {
+  const c = { outcomes: Object.fromEntries(OUTCOMES.map(o => [o, 0])) };
+  if (LIST_FIELDS.has(f)) { c.items_kept_nodes = { tp: 0, fp: 0, fn: 0 }; c.items_added_or_deleted_nodes = { fp: 0, fn: 0 }; }
+  return c;
+}
+function addToCounts(counts, f, r) {
+  const c = counts[f] ||= newCounts(f);
+  c.outcomes[r.outcome]++;
+  if (r.items) {
+    if (r.outcome === "node_deleted" || r.outcome === "node_added") {
+      c.items_added_or_deleted_nodes.fp += r.items.fp; c.items_added_or_deleted_nodes.fn += r.items.fn;
+    } else { const k = c.items_kept_nodes; k.tp += r.items.tp; k.fp += r.items.fp; k.fn += r.items.fn; }
+  }
+}
+function mergeCounts(acc, counts) {
+  for (const [f, c] of Object.entries(counts)) {
+    const a = acc[f] ||= newCounts(f);
+    OUTCOMES.forEach(o => a.outcomes[o] += c.outcomes[o] || 0);
+    if (c.items_kept_nodes) {
+      ["tp", "fp", "fn"].forEach(k => a.items_kept_nodes[k] += c.items_kept_nodes[k] || 0);
+      ["fp", "fn"].forEach(k => a.items_added_or_deleted_nodes[k] += c.items_added_or_deleted_nodes[k] || 0);
+    }
+  }
+  return acc;
+}
+const ratio = (a, b) => b ? Math.round((a / b) * 10000) / 10000 : null;
+const prf = (tp, fp, fn) => ({ tp, fp, fn, precision: ratio(tp, tp + fp), recall: ratio(tp, tp + fn) });
+function fieldScores(counts) {
+  const out = {};
+  [...PF, ...OF].forEach(f => {
+    const c = counts[f]; if (!c) return;
+    const o = c.outcomes;
+    let kept, all;
+    if (c.items_kept_nodes) {
+      const k = c.items_kept_nodes, n = c.items_added_or_deleted_nodes;
+      kept = prf(k.tp, k.fp, k.fn); all = prf(k.tp, k.fp + n.fp, k.fn + n.fn);
+    } else {
+      kept = prf(o.correct, o.wrong + o.spurious, o.wrong + o.missing);
+      all = prf(o.correct, o.wrong + o.spurious + o.node_deleted, o.wrong + o.missing + o.node_added);
+    }
+    out[f] = { unit: c.items_kept_nodes ? "list item" : "field value", ...c,
+      scores_kept_nodes: kept, scores_all_nodes: all };
+  });
+  return out;
+}
+function mergeByKind(acc, byKind) {
+  for (const [k, v] of Object.entries(byKind)) {
+    const a = acc[k] ||= { correct: 0, edited: 0, deleted: 0, added: 0 };
+    for (const s of Object.keys(a)) a[s] += v[s] || 0;
+  }
+  return acc;
+}
+
 function buildExport(f, reviewer) {
-  const log = [], sum = {};
+  const log = [], byKind = {}, counts = {};
   const visit = (n, parentId, depth, via) => {
     const st = via ? "deleted" : status(n);
     const kind = n.kind === "person" ? "person" : depth > 1 ? "sub_organization" : "organization";
+    const mode = st === "deleted" ? "deleted" : st === "added" ? "added" : "kept";
     const e = { node_id: n.id, kind, parent_id: parentId, original_path: n.added ? null : n.path, status: st };
     if (via) e.deleted_with_parent = true;
-    if (!n.added) e.original = pick(n.orig, fieldsOf(n));
-    if (st === "edited") e.field_changes = fieldsOf(n).filter(k => !eq(k, n.orig[k], n.cur[k]))
-      .map(k => ({ field: k, original: norm(k, n.orig[k]), corrected: norm(k, n.cur[k]) }));
-    if (st === "added") e.values = pick(n.cur, fieldsOf(n));
     if (n.t && !via) e.decided_at = n.t;
+    e.fields = {};
+    fieldsOf(n).forEach(k => { const r = scoreField(k, n.orig ? n.orig[k] : null, n.cur[k], mode); e.fields[k] = r; addToCounts(counts, k, r); });
     log.push(e);
-    (sum[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0 })[st]++;
+    (byKind[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0 })[st]++;
     n.children.forEach(c => visit(c, n.id, depth + 1, via || st === "deleted"));
   };
   f.review.people.forEach(p => visit(p, null, 0, false));
-  const fieldEdits = {};
-  log.forEach(e => (e.field_changes || []).forEach(c => fieldEdits[c.field] = (fieldEdits[c.field] || 0) + 1));
   const corrected = { people: f.review.people.filter(p => status(p) !== "deleted").map(p => {
     const g = k => norm(k, p.cur[k]);
     return { name: g("name"), family_name: g("family_name"), given_name: g("given_name"), middle_name: g("middle_name"),
       organizations: p.children.filter(c => status(c) !== "deleted").map(outOrg) };
   }) };
-  return { format: "extraction-review/1", source_file: f.base + ".json", reviewer, exported_at: nowIso(),
-    summary: { by_kind: sum, field_edits: fieldEdits }, corrected, log };
+  const ts = nowIso();
+  return { format: "extraction-review/2", source_file: f.base + ".json", reviewer, exported_at: ts,
+    review_history: (f.review.history || []).concat([{ reviewer, exported_at: ts }]),
+    summary: { by_kind: byKind, field_scores: fieldScores(counts) }, corrected, log };
+}
+
+function csvCell(v) {
+  if (v == null) return "";
+  const s = Array.isArray(v) ? v.join("; ") : String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function outcomesCsv(exports) {
+  const head = ["file", "node_id", "kind", "node_status", "original_path", "field", "model", "corrected", "outcome", "item_tp", "item_fp", "item_fn"];
+  const rows = [head.join(",")];
+  for (const x of exports) for (const e of x.log) for (const [f, r] of Object.entries(e.fields)) {
+    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, f, r.model, r.corrected, r.outcome,
+      r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
+  }
+  return "\uFEFF" + rows.join("\r\n") + "\r\n";
+}
+function batchSummary(exports, reviewer) {
+  const counts = {}, byKind = {};
+  exports.forEach(x => {
+    const raw = {};
+    for (const [f, v] of Object.entries(x.summary.field_scores)) raw[f] = { outcomes: v.outcomes, items_kept_nodes: v.items_kept_nodes, items_added_or_deleted_nodes: v.items_added_or_deleted_nodes };
+    mergeCounts(counts, raw); mergeByKind(byKind, x.summary.by_kind);
+  });
+  return { format: "extraction-review-summary/2", reviewer, exported_at: nowIso(), files: exports.map(x => x.source_file),
+    by_kind: byKind, field_scores: fieldScores(counts) };
 }
 
 function gate(f) {
@@ -813,7 +1024,12 @@ async function saveAll() {
   const ready = all.filter(f => !gate(f));
   if (!ready.length) { toast("No file is finished yet. A file is finished when every item has a decision."); return; }
   const reviewer = reviewerName(); if (!reviewer) return;
-  const zip = makeZip(ready.map(f => ({ name: reviewFileName(f), text: JSON.stringify(buildExport(f, reviewer), null, 2) })));
+  const exports = ready.map(f => buildExport(f, reviewer));
+  const zip = makeZip([
+    { name: "summary.json", text: JSON.stringify(batchSummary(exports, reviewer), null, 2) },
+    { name: "field_outcomes.csv", text: outcomesCsv(exports) },
+    ...exports.map((x, i) => ({ name: reviewFileName(ready[i]), text: JSON.stringify(x, null, 2) }))
+  ]);
   const ok = await saveData(`reviews-${new Date().toISOString().slice(0, 10)}.zip`, zip, "application/zip");
   if (ok) {
     ready.forEach(markDownloaded);
