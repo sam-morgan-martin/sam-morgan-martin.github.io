@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Extraction review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #E6EBF0;
+  --panel: #F6F8FA;
+  --panel-2: #FFFFFF;
+  --ink: #1A2735;
+  --muted: #566677;
+  --line: #C6D0DA;
+  --field: #FFFFFF;
+  --accent: #2F5DA8;
+  --ok: #2B7A5F;
+  --edit: #A4651A;
+  --del: #A63846;
+  --unrev: #8795A4;
+  --mark: #FCE38A;
+  --mark-cur: #F2B233;
+  --sans: "PT Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --serif: "PT Serif", Georgia, "Times New Roman", serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
+    --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
+    --del: #E07A86; --unrev: #7C8A98; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121A22; --panel: #1A242E; --panel-2: #212D39; --ink: #E3E9EF; --muted: #9AA9B8;
+  --line: #34424F; --field: #151E27; --accent: #7BA3E6; --ok: #5DBB95; --edit: #E0A155;
+  --del: #E07A86; --unrev: #7C8A98; --mark: #6B5A1C; --mark-cur: #A9771A; color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 var(--sans); display: grid; grid-template-rows: auto minmax(0, 1fr);
+}
+button, input { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line); background: var(--panel-2); border-radius: 5px;
+  padding: 3px 10px; cursor: pointer; white-space: nowrap;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] button.primary { color: #0E1620; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color: #0E1620; } }
+button.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+button.quiet:hover { color: var(--ink); border-color: var(--line); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type="text"], input:not([type]) {
+  background: var(--field); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 7px; width: 100%; min-width: 0;
+}
+input:disabled { opacity: .6; }
+
+/* header */
+.top {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.top h1 { font-size: 17px; margin: 0 auto 0 0; font-weight: 700; }
+.top label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.top label input { width: 150px; color: var(--ink); }
+
+main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3fr); min-height: 0; }
+.pane { overflow: auto; min-height: 0; }
+.pane + .pane { border-left: 1px solid var(--line); }
+.pane-head {
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.pane-head h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 700; }
+
+/* file list */
+.files ul { list-style: none; margin: 0; padding: 6px; }
+.file-btn {
+  display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none;
+  padding: 7px 8px; border-radius: 5px; white-space: normal;
+}
+.file-btn[aria-current="true"] { background: var(--panel-2); border-color: var(--line); }
+.file-name { display: block; font-size: 13.5px; overflow-wrap: anywhere; }
+.file-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.file-meta.warn { color: var(--del); }
+.bar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--line); }
+.bar span { display: block; height: 100%; }
+.c-correct { background: var(--ok); } .c-edited { background: var(--edit); }
+.c-deleted { background: var(--del); } .c-added { background: var(--accent); }
+.c-unreviewed { background: transparent; }
+
+/* source */
+.source-body { padding: 18px 22px 40px; }
+.source-text {
+  font: 16px/1.65 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-width: 72ch; margin: 0;
+}
+.source-text mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.source-text mark.cur { background: var(--mark-cur); }
+.search { display: flex; gap: 6px; align-items: center; flex: 1 1 260px; }
+.search input { flex: 1; }
+.search .count { color: var(--muted); font-size: 12.5px; min-width: 52px; text-align: right; }
+.note { color: var(--muted); font-size: 12.5px; width: 100%; }
+.empty { color: var(--muted); padding: 24px; max-width: 46ch; }
+
+/* tree */
+.tree-body { padding: 8px 14px 60px; }
+.tally { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+.tally span { padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); }
+.tally .t-unreviewed { border-style: dashed; }
+.tally i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.head-actions { margin-left: auto; display: flex; gap: 6px; }
+
+.node {
+  --rail: var(--unrev);
+  border-left: 4px dashed var(--rail); background: var(--panel);
+  border-radius: 0 6px 6px 0; margin: 10px 0; border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.node .node { background: var(--panel-2); margin: 8px 0; }
+.node .node .node { background: var(--panel); }
+.node.st-correct { --rail: var(--ok); border-left-style: solid; }
+.node.st-edited { --rail: var(--edit); border-left-style: solid; }
+.node.st-deleted { --rail: var(--del); border-left-style: solid; }
+.node.st-added { --rail: var(--accent); border-left-style: solid; }
+.node.flash { animation: flash 1.2s ease-out 1; }
+@keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
+@media (prefers-reduced-motion: reduce) { .node.flash { animation: none; outline: 2px solid var(--accent); } }
+
+.node-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 4px; flex-wrap: wrap; }
+.twisty { border: none; background: none; padding: 2px 6px; color: var(--muted); }
+.twisty::before { content: "▸"; display: inline-block; transition: transform .12s; }
+.twisty[aria-expanded="true"]::before { transform: rotate(90deg); }
+.kind { font-size: 12px; color: var(--muted); }
+.node-title { font-weight: 700; overflow-wrap: anywhere; flex: 1 1 160px; }
+.person > .node-head .node-title { font-size: 16px; }
+.st-deleted > .node-head .node-title { text-decoration: line-through; color: var(--muted); }
+.badge { font-size: 12px; padding: 0 8px; border-radius: 10px; color: var(--rail); border: 1px solid var(--rail); }
+.st-unreviewed > .node-head .badge { border-style: dashed; }
+.actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.act-ok { color: var(--ok); } .act-del { color: var(--del); }
+
+.node-body { padding: 2px 12px 10px 16px; }
+.grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; }
+.fld { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fld-label { font-size: 12px; color: var(--muted); }
+.fld.changed input { border-color: var(--edit); }
+.was { font-size: 12px; color: var(--edit); overflow-wrap: anywhere; }
+.was:empty { display: none; }
+.chips {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px; background: var(--field); min-height: 32px;
+}
+.fld.changed .chips { border-color: var(--edit); }
+.chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 7px; border-radius: 3px; background: var(--bg); font-size: 13px; }
+.chip button { border: none; background: none; padding: 0 4px; color: var(--muted); }
+.chips input { border: none; width: 70px; flex: 1; padding: 2px 4px; background: transparent; }
+.span-row { display: flex; gap: 4px; margin-bottom: 4px; }
+.span-row input.bad { border-color: var(--del); background: color-mix(in srgb, var(--del) 8%, var(--field)); }
+.add-row { margin-top: 10px; display: flex; gap: 8px; }
+.children { margin-top: 6px; }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg);
+  padding: 8px 16px; border-radius: 6px; max-width: min(560px, 92vw); opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.toast.show { opacity: 1; }
+.drop-hint { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 3px dashed var(--accent); display: none; align-items: center; justify-content: center; font-size: 20px; z-index: 10; }
+body.dragging .drop-hint { display: flex; }
+
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  body { display: block; }
+  main { grid-template-columns: minmax(0, 1fr); }
+  .pane + .pane { border-left: none; border-top: 1px solid var(--line); }
+  .files { max-height: 30vh; }
+  .source { max-height: 60vh; }
+  .tree { overflow: visible; }
+  .grid > .fld { grid-column: span 6 !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Extraction review</h1>
+  <label>Reviewer <input id="reviewer" type="text" autocomplete="name" placeholder="Your name"></label>
+  <button id="loadBtn">Load files</button>
+  <input id="fileInput" type="file" multiple accept=".json,.txt" hidden>
+  <button id="saveAllBtn" title="Download every finished review as one .zip file">Download finished</button>
+</header>
+<main>
+  <nav class="pane files" aria-label="Files">
+    <div class="pane-head"><h2>Files</h2></div>
+    <ul id="fileList"></ul>
+  </nav>
+  <section class="pane source" aria-label="Source text">
+    <div class="pane-head">
+      <div class="search">
+        <input id="search" type="text" placeholder="Search the source text" aria-label="Search the source text">
+        <span class="count" id="searchCount"></span>
+        <button id="prevHit" aria-label="Previous match">↑</button>
+        <button id="nextHit" aria-label="Next match">↓</button>
+      </div>
+      <div class="note" id="searchNote"></div>
+    </div>
+    <div class="source-body" id="sourceBody"></div>
+  </section>
+  <section class="pane tree" aria-label="Extracted records">
+    <div class="pane-head" id="treeHead"></div>
+    <div class="tree-body" id="treeBody"></div>
+  </section>
+</main>
+<datalist id="catCodes"></datalist>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="drop-hint">Drop .json and .txt files to load them</div>
+
+<script>
+(() => {
+"use strict";
+
+const PF = ["name", "family_name", "given_name", "middle_name"];
+const OF = ["org_name", "title", "categories", "year_month_spans", "town_city", "region", "country"];
+const LABEL = {
+  name: "Full name", family_name: "Family name", given_name: "Given name", middle_name: "Middle name",
+  org_name: "Organization", title: "Title", categories: "Categories", year_month_spans: "Dates",
+  town_city: "City", region: "Region", country: "Country"
+};
+const SPAN_RE = /^\d{4}-\d{2}:\d{4}-\d{2}$/;
+const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added" };
+const STORE = "xr1:";
+
+const S = {
+  files: new Map(),       // base -> {base, hash, json, text, review, error}
+  pendingText: new Map(), // base -> text, for .txt loaded before its .json
+  current: null,
+  open: new Map(),        // node id -> expanded override
+  search: { terms: [], idx: 0, count: 0 },
+  saveTimer: null,
+  dl: (window.claude && typeof window.claude.use === "function") ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null)
+};
+
+const $ = id => document.getElementById(id);
+const clone = v => v == null ? v : JSON.parse(JSON.stringify(v));
+const nowIso = () => new Date().toISOString();
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  if (props) for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+function hash(s) { let x = 5381; for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) | 0; return (x >>> 0).toString(36); }
+
+function toast(msg, ms = 4200) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+/* ---------- storage (per-viewer convenience) ---------- */
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }
+
+/* ---------- model ---------- */
+function norm(f, v) {
+  if (f === "year_month_spans") { const a = (v || []).map(s => String(s).trim()); return a.length ? a : null; }
+  if (f === "categories") return (v || []).map(s => String(s).trim()).filter(Boolean);
+  if (v == null) return null;
+  const t = String(v).trim(); return t === "" ? null : t;
+}
+const eq = (f, a, b) => JSON.stringify(norm(f, a)) === JSON.stringify(norm(f, b));
+const fieldsOf = n => n.kind === "person" ? PF : OF;
+const changed = n => !n.added && fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f]));
+
+function status(n) {
+  if (n.added) return "added";
+  if (n.decision === "delete") return "deleted";
+  if (n.decision === "accept") return changed(n) ? "edited" : "correct";
+  return "unreviewed";
+}
+
+function buildOrg(o, id, path) {
+  const orig = {}; OF.forEach(f => orig[f] = clone(o[f] ?? null));
+  if (!Array.isArray(orig.categories)) orig.categories = orig.categories ? [orig.categories] : [];
+  if (orig.year_month_spans != null && !Array.isArray(orig.year_month_spans)) orig.year_month_spans = [orig.year_month_spans];
+  return {
+    id, kind: "org", path, orig, cur: clone(orig), decision: null, auto: false, added: false, t: null,
+    children: (o.sub_organizations || []).map((s, i) => buildOrg(s, id + ".s" + i, path + ".sub_organizations[" + i + "]"))
+  };
+}
+function buildReview(json) {
+  return {
+    nextNew: 1, savedAt: null, dirtySinceSave: false,
+    people: (json.people || []).map((p, i) => {
+      const orig = {}; PF.forEach(f => orig[f] = p[f] ?? null);
+      return {
+        id: "p" + i, kind: "person", path: "people[" + i + "]", orig, cur: clone(orig),
+        decision: null, auto: false, added: false, t: null,
+        children: (p.organizations || []).map((o, j) => buildOrg(o, "p" + i + ".o" + j, "people[" + i + "].organizations[" + j + "]"))
+      };
+    })
+  };
+}
+function newNode(review, kind) {
+  const fields = kind === "person" ? PF : OF, cur = {};
+  fields.forEach(f => cur[f] = f === "categories" ? [] : null);
+  return { id: "new" + (review.nextNew++), kind, path: null, orig: null, cur, decision: null, auto: false, added: true, t: nowIso(), children: [] };
+}
+
+function eachLive(review, cb) {
+  const visit = (n, depth) => { cb(n, depth); if (status(n) !== "deleted") n.children.forEach(c => visit(c, depth + 1)); };
+  review.people.forEach(p => visit(p, 0));
+}
+function invalid(n) {
+  if (n.kind === "person") return n.added && !norm("name", n.cur.name);
+  if (n.added && !norm("org_name", n.cur.org_name)) return true;
+  return (n.cur.year_month_spans || []).some(s => !SPAN_RE.test(String(s).trim()));
+}
+function tally(review) {
+  const c = { correct: 0, edited: 0, deleted: 0, added: 0, unreviewed: 0, total: 0, invalid: 0 };
+  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted" && invalid(n)) c.invalid++; });
+  return c;
+}
+function findNode(review, id) {
+  const walk = (list, anc) => {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (n.id === id) return { node: n, list, idx: i, anc };
+      const r = walk(n.children, anc.concat(n)); if (r) return r;
+    }
+    return null;
+  };
+  return walk(review.people, []);
+}
+
+/* ---------- loading ---------- */
+const baseOf = name => name.normalize("NFC").replace(/\.(json|txt)$/i, "");
+const readText = file => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsText(file, "utf-8"); });
+
+async function loadFiles(list) {
+  const files = Array.from(list || []);
+  let nJson = 0, nTxt = 0, orphanTxt = 0, errors = 0;
+  for (const file of files.filter(f => /\.txt$/i.test(f.name))) {
+    const base = baseOf(file.name), text = await readText(file); nTxt++;
+    if (S.files.has(base)) S.files.get(base).text = text; else { S.pendingText.set(base, text); orphanTxt++; }
+  }
+  for (const file of files.filter(f => /\.json$/i.test(f.name))) {
+    const base = baseOf(file.name), raw = await readText(file); nJson++;
+    const entry = { base, hash: hash(raw), json: null, text: S.pendingText.get(base) ?? S.files.get(base)?.text ?? null, review: null, error: null };
+    if (entry.text != null) { S.pendingText.delete(base); if (orphanTxt) orphanTxt--; }
+    try { entry.json = JSON.parse(raw); } catch (e) { entry.error = "Not valid JSON: " + e.message; errors++; }
+    if (entry.json) {
+      const saved = lsGet(STORE + base + ":" + entry.hash);
+      let restored = null; if (saved) { try { restored = JSON.parse(saved); } catch { restored = null; } }
+      entry.review = restored || buildReview(entry.json);
+    }
+    S.files.set(base, entry);
+  }
+  refreshCatCodes();
+  if (!S.current || !S.files.has(S.current)) {
+    const first = sortedBases().find(b => S.files.get(b).review);
+    if (first) S.current = first;
+  }
+  renderAll();
+  const parts = [];
+  if (nJson) parts.push(`${nJson} record file${nJson > 1 ? "s" : ""}`);
+  if (nTxt) parts.push(`${nTxt} source file${nTxt > 1 ? "s" : ""}`);
+  let msg = parts.length ? "Loaded " + parts.join(" and ") + "." : "No .json or .txt files found in that selection.";
+  if (orphanTxt) msg += ` ${orphanTxt} source file${orphanTxt > 1 ? "s have" : " has"} no matching .json yet.`;
+  if (errors) msg += ` ${errors} file${errors > 1 ? "s" : ""} could not be read.`;
+  toast(msg);
+}
+const sortedBases = () => Array.from(S.files.keys()).sort((a, b) => a.localeCompare(b, "ru"));
+
+function refreshCatCodes() {
+  const codes = new Set();
+  const visit = n => { (n.cur.categories || []).forEach(c => codes.add(c)); (n.orig?.categories || []).forEach(c => codes.add(c)); n.children.forEach(visit); };
+  for (const f of S.files.values()) if (f.review) f.review.people.forEach(p => p.children.forEach(visit));
+  const dl = $("catCodes"); dl.replaceChildren(...Array.from(codes).sort().map(c => h("option", { value: c })));
+}
+
+/* ---------- persistence ---------- */
+function touch(f) {
+  f = f || cur(); if (!f) return;
+  if (f.review.savedAt) f.review.dirtySinceSave = true;
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(() => persist(f), 350);
+  renderHead(); renderFileItem(f);
+}
+function persist(f) {
+  if (!lsSet(STORE + f.base + ":" + f.hash, JSON.stringify(f.review))) {
+    if (!persist.warned) { persist.warned = true; toast("This browser won't keep progress between visits. Download your reviews before closing the page.", 7000); }
+  }
+}
+const cur = () => S.current ? S.files.get(S.current) : null;
+
+/* ---------- rendering: file list ---------- */
+function renderFileList() {
+  updateBulkBtn();
+  const ul = $("fileList");
+  if (!S.files.size) { ul.replaceChildren(h("li", { class: "empty", style: "padding:10px" }, "No files loaded yet.")); return; }
+  ul.replaceChildren(...sortedBases().map(b => h("li", { "data-base": b }, fileItem(S.files.get(b)))));
+}
+function fileItem(f) {
+  if (f.error) return h("div", { class: "file-btn" }, h("span", { class: "file-name" }, f.base), h("span", { class: "file-meta warn" }, f.error));
+  const c = tally(f.review);
+  const bar = h("span", { class: "bar", "aria-hidden": "true" },
+    ["correct", "edited", "deleted", "added", "unreviewed"].map(s => c[s] ? h("span", { class: "c-" + s, style: `width:${(c[s] / c.total) * 100}%` }) : null));
+  let meta, warn = false;
+  if (f.review.savedAt && !f.review.dirtySinceSave) meta = "Downloaded";
+  else if (c.unreviewed) meta = `${c.total - c.unreviewed} of ${c.total} decided`;
+  else if (c.invalid) { meta = "Needs a fix before saving"; warn = true; }
+  else meta = f.review.savedAt ? "Changed since last download" : "Finished";
+  const noText = f.text == null ? h("span", { class: "file-meta warn" }, "No matching .txt loaded") : null;
+  return h("button", { class: "file-btn", "aria-current": f.base === S.current ? "true" : "false", onclick: () => selectFile(f.base) },
+    h("span", { class: "file-name" }, f.base), bar, h("span", { class: "file-meta" + (warn ? " warn" : "") }, meta), noText);
+}
+function updateBulkBtn() {
+  const n = Array.from(S.files.values()).filter(f => f.review && !gate(f)).length;
+  const b = $("saveAllBtn"); b.textContent = n ? `Download finished (${n})` : "Download finished";
+}
+function renderFileItem(f) {
+  updateBulkBtn();
+  const li = Array.from($("fileList").children).find(el => el.dataset.base === f.base);
+  if (li) li.replaceChildren(fileItem(f));
+}
+function selectFile(base) {
+  if (!S.files.get(base)?.review) return;
+  S.current = base; S.open.clear(); S.search = { terms: [], idx: 0, count: 0 };
+  $("search").value = ""; $("searchNote").textContent = "";
+  renderAll(); $("treeBody").parentElement.scrollTop = 0; $("sourceBody").parentElement.scrollTop = 0;
+}
+
+/* ---------- rendering: source ---------- */
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function renderSource(scroll) {
+  const body = $("sourceBody"), f = cur();
+  if (!f) { body.replaceChildren(emptyState()); $("searchCount").textContent = ""; return; }
+  if (f.text == null) {
+    body.replaceChildren(h("p", { class: "empty" }, `No source text for this record. Load "${f.base}.txt" to see it here.`));
+    $("searchCount").textContent = ""; return;
+  }
+  const terms = S.search.terms.filter(t => t && t.length >= 2);
+  let html = esc(f.text), count = 0;
+  if (terms.length) {
+    const re = new RegExp("(" + terms.map(reEsc).sort((a, b) => b.length - a.length).join("|") + ")", "giu");
+    html = f.text.split(re).map((part, i) => i % 2 ? `<mark data-i="${count++}">${esc(part)}</mark>` : esc(part)).join("");
+  }
+  S.search.count = count;
+  if (S.search.idx >= count) S.search.idx = 0;
+  const pre = h("pre", { class: "source-text" }); pre.innerHTML = html;
+  body.replaceChildren(pre);
+  $("searchCount").textContent = terms.length ? (count ? `${S.search.idx + 1} of ${count}` : "0 found") : "";
+  if (count) {
+    const m = pre.querySelector(`mark[data-i="${S.search.idx}"]`);
+    m.classList.add("cur"); if (scroll) m.scrollIntoView({ block: "center" });
+  }
+}
+function stepHit(d) {
+  if (!S.search.count) return;
+  S.search.idx = (S.search.idx + d + S.search.count) % S.search.count;
+  renderSource(true);
+}
+function findInText(label) {
+  const f = cur(); if (!f || f.text == null || !label) return;
+  $("search").value = label;
+  const exact = f.text.toLocaleLowerCase("ru").includes(label.toLocaleLowerCase("ru"));
+  if (exact) { S.search.terms = [label]; $("searchNote").textContent = ""; }
+  else {
+    const words = label.split(/[\s,.;:«»"'()\-–—]+/).filter(w => w.length >= 4);
+    S.search.terms = words.map(w => w.length > 6 ? w.slice(0, -2) : w.slice(0, Math.max(4, w.length - 1)));
+    $("searchNote").textContent = S.search.terms.length ? "No exact match; highlighting word stems instead." : "";
+  }
+  S.search.idx = 0; renderSource(true);
+  if (window.matchMedia("(max-width: 900px)").matches) $("sourceBody").parentElement.scrollIntoView({ block: "start" });
+}
+
+/* ---------- rendering: tree ---------- */
+function emptyState() {
+  return h("div", { class: "empty" },
+    h("p", null, "Load the model's .json files together with their source .txt files. Files are paired by name, so the text for “Name_part6.json” should be “Name_part6.txt”."),
+    h("p", null, "You can also drag files onto this page."),
+    h("button", { class: "primary", onclick: () => $("fileInput").click() }, "Load files"));
+}
+
+function renderHead() {
+  const head = $("treeHead"), f = cur();
+  if (!f) { head.replaceChildren(h("h2", null, "Records")); return; }
+  const c = tally(f.review);
+  head.replaceChildren(
+    h("div", { class: "tally", "aria-label": "Review progress" },
+      ["unreviewed", "correct", "edited", "deleted", "added"].map(s =>
+        h("span", { class: "t-" + s }, h("i", { class: "c-" + s, style: s === "unreviewed" ? "border:1px dashed var(--unrev)" : null }), `${STATUS_TEXT[s]} ${c[s]}`))),
+    h("div", { class: "head-actions" },
+      h("button", { onclick: jumpToNext, disabled: !(c.unreviewed || c.invalid) }, "Next to review"),
+      h("button", { class: "primary", onclick: () => saveOne(f) }, "Download review")));
+}
+
+function renderTree() {
+  const body = $("treeBody"), f = cur(), pane = body.parentElement, top = pane.scrollTop;
+  renderHead();
+  if (!f) { body.replaceChildren(); return; }
+  body.replaceChildren(
+    ...f.review.people.map(p => renderNode(p, 0, false)),
+    h("div", { class: "add-row" }, h("button", { onclick: () => addChild(null, "person") }, "Add person")));
+  pane.scrollTop = top;
+}
+
+const isOpen = n => S.open.has(n.id) ? S.open.get(n.id) : status(n) !== "deleted";
+
+function nodeLabel(n) {
+  if (n.kind === "person") return norm("name", n.cur.name) || "Unnamed person";
+  return norm("org_name", n.cur.org_name) || "Unnamed organization";
+}
+function kindText(n, depth) { return n.kind === "person" ? "Person" : depth > 1 ? "Sub-organization" : "Organization"; }
+
+function actionButtons(n, locked) {
+  if (locked) return [];
+  const s = status(n), B = [];
+  const set = (d) => () => decide(n, d);
+  if (s === "unreviewed") B.push(h("button", { class: "act-ok", onclick: set("accept") }, "Correct"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
+  if (s === "correct") B.push(h("button", { onclick: set(null) }, "Undo"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
+  if (s === "edited") B.push(h("button", { onclick: () => revert(n) }, "Revert edits"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
+  if (s === "deleted") B.push(h("button", { onclick: set(null) }, "Restore"));
+  if (s === "added") B.push(h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove"));
+  if (s !== "deleted" && cur()?.text != null) B.push(h("button", { class: "quiet", onclick: () => findInText(searchLabel(n)) }, "Find in text"));
+  return B;
+}
+function searchLabel(n) {
+  if (n.kind === "org") return norm("org_name", n.cur.org_name);
+  const f = cur(), full = norm("name", n.cur.name);
+  if (full && f.text.toLocaleLowerCase("ru").includes(full.toLocaleLowerCase("ru"))) return full;
+  const fam = norm("family_name", n.cur.family_name);
+  return fam && fam !== "<unknown>" ? fam : norm("given_name", n.cur.given_name) || full;
+}
+
+function renderNode(n, depth, locked) {
+  const s = locked ? "deleted" : status(n), open = isOpen(n);
+  const el = h("section", { class: `node ${n.kind === "person" ? "person" : "org"} st-${s}`, "data-id": n.id });
+  const bodyId = "b-" + n.id.replace(/\W/g, "_");
+  const head = h("div", { class: "node-head" },
+    h("button", { class: "twisty", "aria-expanded": String(open), "aria-controls": bodyId, "aria-label": open ? "Collapse" : "Expand",
+      onclick: () => { S.open.set(n.id, !open); renderTree(); } }),
+    h("span", { class: "kind" }, kindText(n, depth)),
+    h("span", { class: "node-title" }, nodeLabel(n)),
+    h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
+    h("span", { class: "actions" }, actionButtons(n, locked)));
+  el.append(head);
+  if (open) {
+    const dis = locked || s === "deleted";
+    const body = h("div", { class: "node-body", id: bodyId }, fieldGrid(n, dis));
+    const kids = h("div", { class: "children" }, n.children.map(c => renderNode(c, depth + 1, dis)));
+    body.append(kids);
+    if (!dis) body.append(h("div", { class: "add-row" },
+      h("button", { onclick: () => addChild(n, "org") }, n.kind === "person" ? "Add organization" : "Add sub-organization")));
+    el.append(body);
+  }
+  return el;
+}
+
+function display(f, v) {
+  const x = norm(f, v);
+  if (x == null || (Array.isArray(x) && !x.length)) return "empty";
+  return Array.isArray(x) ? x.join(", ") : x;
+}
+function wasText(n, f) { return (!n.added && !eq(f, n.orig[f], n.cur[f])) ? "Model: " + display(f, n.orig[f]) : ""; }
+
+function fieldGrid(n, dis) {
+  const spans = n.kind === "person"
+    ? { name: 6, family_name: 2, given_name: 2, middle_name: 2 }
+    : { org_name: 6, title: 6, categories: 3, year_month_spans: 3, town_city: 2, region: 2, country: 2 };
+  return h("div", { class: "grid" }, fieldsOf(n).map(f => {
+    const wrap = h("div", { class: "fld", style: `grid-column: span ${spans[f]}`, "data-field": f });
+    fillField(wrap, n, f, dis);
+    return wrap;
+  }));
+}
+
+function fillField(wrap, n, f, dis) {
+  const id = "f-" + n.id.replace(/\W/g, "_") + "-" + f;
+  wrap.classList.toggle("changed", !!wasText(n, f));
+  const label = h("label", { class: "fld-label", for: id }, LABEL[f]);
+  const was = h("span", { class: "was" }, wasText(n, f));
+  let control;
+  if (f === "categories") {
+    const list = n.cur.categories || (n.cur.categories = []);
+    const input = h("input", { id, list: "catCodes", placeholder: dis ? "" : "Add", disabled: dis, "aria-label": "Add category" });
+    const add = () => {
+      const vals = input.value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+      let added = false; vals.forEach(v => { if (!list.includes(v)) { list.push(v); added = true; } });
+      input.value = ""; if (added) { onEdit(n, f); fillField(wrap, n, f, dis); wrap.querySelector("input").focus(); }
+    };
+    input.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); } else if (e.key === "Backspace" && !input.value && list.length) { list.pop(); onEdit(n, f); fillField(wrap, n, f, dis); wrap.querySelector("input").focus(); } });
+    input.addEventListener("change", add);
+    control = h("div", { class: "chips" },
+      list.map((c, i) => h("span", { class: "chip" }, c, dis ? null : h("button", { "aria-label": "Remove " + c,
+        onclick: () => { list.splice(i, 1); onEdit(n, f); fillField(wrap, n, f, dis); } }, "×"))), input);
+  } else if (f === "year_month_spans") {
+    const list = n.cur.year_month_spans || [];
+    const rows = list.map((v, i) => {
+      const inp = h("input", { value: v, placeholder: "YYYY-MM:YYYY-MM", disabled: dis, id: i === 0 ? id : null,
+        "aria-label": `Date range ${i + 1}`, title: "Use 00 for an unknown month and 0000 for an unknown year", class: SPAN_RE.test(String(v).trim()) ? null : "bad" });
+      inp.addEventListener("input", () => {
+        n.cur.year_month_spans[i] = inp.value;
+        inp.classList.toggle("bad", !SPAN_RE.test(inp.value.trim()));
+        onEdit(n, f); refreshWas(wrap, n, f);
+      });
+      return h("div", { class: "span-row" }, inp, dis ? null : h("button", { "aria-label": `Remove date range ${i + 1}`,
+        onclick: () => { n.cur.year_month_spans.splice(i, 1); if (!n.cur.year_month_spans.length) n.cur.year_month_spans = null; onEdit(n, f); fillField(wrap, n, f, dis); } }, "×"));
+    });
+    control = h("div", null, rows, dis ? (list.length ? null : h("span", { class: "fld-label" }, "none")) :
+      h("button", { class: "quiet", id: list.length ? null : id, onclick: () => {
+        n.cur.year_month_spans = (n.cur.year_month_spans || []).concat("");
+        onEdit(n, f); fillField(wrap, n, f, dis); const ins = wrap.querySelectorAll("input"); ins[ins.length - 1].focus();
+      } }, "Add dates"));
+  } else {
+    control = h("input", { id, type: "text", value: n.cur[f] ?? "", placeholder: "empty", disabled: dis });
+    control.addEventListener("input", () => {
+      n.cur[f] = control.value;
+      onEdit(n, f); refreshWas(wrap, n, f);
+      if ((f === "org_name" || f === "name")) { const t = nodeEl(n)?.querySelector(":scope > .node-head .node-title"); if (t) t.textContent = nodeLabel(n); }
+    });
+  }
+  wrap.replaceChildren(label, control, was);
+}
+function refreshWas(wrap, n, f) { const w = wasText(n, f); wrap.classList.toggle("changed", !!w); wrap.querySelector(":scope > .was").textContent = w; }
+
+const nodeEl = n => $("treeBody").querySelector(`[data-id="${CSS.escape(n.id)}"]`);
+
+function refreshChrome(n) {
+  const el = nodeEl(n); if (!el) return;
+  const s = status(n);
+  el.className = el.className.replace(/\bst-\w+/, "st-" + s);
+  el.querySelector(":scope > .node-head .badge").textContent = STATUS_TEXT[s];
+  el.querySelector(":scope > .node-head .actions").replaceChildren(...actionButtons(n, false));
+}
+
+/* ---------- edits ---------- */
+function onEdit(n) {
+  if (!n.added) {
+    const ch = changed(n);
+    if (ch && n.decision === null) { n.decision = "accept"; n.auto = true; }
+    else if (!ch && n.auto && n.decision === "accept") { n.decision = null; n.auto = false; }
+  }
+  n.t = nowIso();
+  refreshChrome(n); touch();
+  if (n.kind === "org" && n.cur.categories) refreshCatCodes();
+}
+function decide(n, d) {
+  n.decision = d; n.auto = false; n.t = nowIso(); S.open.delete(n.id);
+  renderTree(); touch();
+}
+function revert(n) {
+  n.cur = clone(n.orig); n.decision = null; n.auto = false; n.t = nowIso();
+  renderTree(); touch();
+}
+function removeAdded(n) {
+  const f = cur(), r = findNode(f.review, n.id); if (!r) return;
+  r.list.splice(r.idx, 1); renderTree(); touch();
+}
+function addChild(parent, kind) {
+  const f = cur(), n = newNode(f.review, kind);
+  (parent ? parent.children : f.review.people).push(n);
+  if (parent) S.open.set(parent.id, true);
+  renderTree(); touch();
+  const el = nodeEl(n); if (el) { el.scrollIntoView({ block: "center" }); el.querySelector("input")?.focus(); }
+}
+function jumpToNext() {
+  const f = cur(); if (!f) return;
+  let target = null;
+  eachLive(f.review, n => { if (!target && (status(n) === "unreviewed" || (status(n) !== "deleted" && invalid(n)))) target = n; });
+  if (!target) { toast("Every item in this file has a decision."); return; }
+  const r = findNode(f.review, target.id); r.anc.forEach(a => S.open.set(a.id, true)); S.open.set(target.id, true);
+  renderTree();
+  const el = nodeEl(target);
+  if (el) { el.scrollIntoView({ block: "start" }); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+    el.querySelector(":scope > .node-head .actions button")?.focus({ preventScroll: true }); }
+}
+
+/* ---------- export ---------- */
+function outOrg(o) {
+  const g = f => norm(f, o.cur[f]);
+  return { org_name: g("org_name"), sub_organizations: o.children.filter(c => status(c) !== "deleted").map(outOrg),
+    categories: g("categories"), year_month_spans: g("year_month_spans"), title: g("title"),
+    town_city: g("town_city"), region: g("region"), country: g("country") };
+}
+function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, obj[f])); return o; }
+
+function buildExport(f, reviewer) {
+  const log = [], sum = {};
+  const visit = (n, parentId, depth, via) => {
+    const st = via ? "deleted" : status(n);
+    const kind = n.kind === "person" ? "person" : depth > 1 ? "sub_organization" : "organization";
+    const e = { node_id: n.id, kind, parent_id: parentId, original_path: n.added ? null : n.path, status: st };
+    if (via) e.deleted_with_parent = true;
+    if (!n.added) e.original = pick(n.orig, fieldsOf(n));
+    if (st === "edited") e.field_changes = fieldsOf(n).filter(k => !eq(k, n.orig[k], n.cur[k]))
+      .map(k => ({ field: k, original: norm(k, n.orig[k]), corrected: norm(k, n.cur[k]) }));
+    if (st === "added") e.values = pick(n.cur, fieldsOf(n));
+    if (n.t && !via) e.decided_at = n.t;
+    log.push(e);
+    (sum[kind] ||= { correct: 0, edited: 0, deleted: 0, added: 0 })[st]++;
+    n.children.forEach(c => visit(c, n.id, depth + 1, via || st === "deleted"));
+  };
+  f.review.people.forEach(p => visit(p, null, 0, false));
+  const fieldEdits = {};
+  log.forEach(e => (e.field_changes || []).forEach(c => fieldEdits[c.field] = (fieldEdits[c.field] || 0) + 1));
+  const corrected = { people: f.review.people.filter(p => status(p) !== "deleted").map(p => {
+    const g = k => norm(k, p.cur[k]);
+    return { name: g("name"), family_name: g("family_name"), given_name: g("given_name"), middle_name: g("middle_name"),
+      organizations: p.children.filter(c => status(c) !== "deleted").map(outOrg) };
+  }) };
+  return { format: "extraction-review/1", source_file: f.base + ".json", reviewer, exported_at: nowIso(),
+    summary: { by_kind: sum, field_edits: fieldEdits }, corrected, log };
+}
+
+function gate(f) {
+  const c = tally(f.review);
+  if (c.unreviewed) return `${c.unreviewed} item${c.unreviewed > 1 ? "s" : ""} in this file still need${c.unreviewed > 1 ? "" : "s"} a decision.`;
+  if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix: a date not in YYYY-MM:YYYY-MM form, or a new entry with no name.`;
+  return null;
+}
+function reviewerName() {
+  const r = $("reviewer").value.trim();
+  if (!r) { toast("Enter your name in the Reviewer box first."); $("reviewer").focus(); }
+  return r;
+}
+
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// Minimal uncompressed .zip writer (UTF-8 file names), so no external library is needed.
+function makeZip(entries) {
+  const enc = new TextEncoder(), parts = [], central = [], d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name), data = enc.encode(e.text), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const size = central.reduce((a, c) => a + c.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, size, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+}
+
+async function saveData(filename, data, mime) {
+  const dl = await S.dl;
+  if (dl) {
+    try { await dl.save({ filename, data }); return true; }
+    catch (e) {
+      if (e && e.code === "declined") { toast("Download cancelled."); return false; }
+      if (e && e.code === "rate_limited") { toast("A download prompt is already open. Finish that one first."); return false; }
+      if (e && !["unavailable", "not_granted", "capability_disabled", "capability_removed"].includes(e.code)) { toast("Couldn't download: " + (e.message || e.code)); return false; }
+    }
+  }
+  // Ordinary browser download (used when the page is self-hosted).
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  const url = URL.createObjectURL(blob), a = h("a", { href: url, download: filename });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
+}
+const reviewFileName = f => f.base + ".review.json";
+function markDownloaded(f) { f.review.savedAt = nowIso(); f.review.dirtySinceSave = false; persist(f); }
+
+async function saveOne(f) {
+  const problem = gate(f);
+  if (problem) { toast(problem + " “Next to review” takes you there."); return; }
+  const reviewer = reviewerName(); if (!reviewer) return;
+  const ok = await saveData(reviewFileName(f), JSON.stringify(buildExport(f, reviewer), null, 2), "application/json");
+  if (ok) { markDownloaded(f); renderFileItem(f); toast("Downloaded " + reviewFileName(f)); }
+}
+async function saveAll() {
+  const all = sortedBases().map(b => S.files.get(b)).filter(f => f.review);
+  const ready = all.filter(f => !gate(f));
+  if (!ready.length) { toast("No file is finished yet. A file is finished when every item has a decision."); return; }
+  const reviewer = reviewerName(); if (!reviewer) return;
+  const zip = makeZip(ready.map(f => ({ name: reviewFileName(f), text: JSON.stringify(buildExport(f, reviewer), null, 2) })));
+  const ok = await saveData(`reviews-${new Date().toISOString().slice(0, 10)}.zip`, zip, "application/zip");
+  if (ok) {
+    ready.forEach(markDownloaded);
+    renderFileList();
+    const left = all.length - ready.length;
+    toast(`Downloaded ${ready.length} finished review${ready.length > 1 ? "s" : ""} in one .zip file.` + (left ? ` ${left} not finished yet.` : ""));
+  }
+}
+
+/* ---------- wiring ---------- */
+function renderAll() { renderFileList(); renderSource(false); renderTree(); if (!cur()) $("treeBody").replaceChildren(emptyState()); }
+
+$("loadBtn").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", e => { loadFiles(e.target.files); e.target.value = ""; });
+$("saveAllBtn").addEventListener("click", saveAll);
+$("reviewer").value = lsGet(STORE + "reviewer") || "";
+$("reviewer").addEventListener("input", e => lsSet(STORE + "reviewer", e.target.value));
+$("search").addEventListener("input", e => { const v = e.target.value.trim(); S.search.terms = v ? [v] : []; S.search.idx = 0; $("searchNote").textContent = ""; renderSource(true); });
+$("search").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); } });
+$("prevHit").addEventListener("click", () => stepHit(-1));
+$("nextHit").addEventListener("click", () => stepHit(1));
+
+let dragDepth = 0;
+window.addEventListener("dragenter", e => { if (e.dataTransfer?.types?.includes("Files")) { dragDepth++; document.body.classList.add("dragging"); } });
+window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove("dragging"); });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging"); if (e.dataTransfer?.files?.length) loadFiles(e.dataTransfer.files); });
+
+renderAll();
+})();
+</script>
+</body>
+</html>
