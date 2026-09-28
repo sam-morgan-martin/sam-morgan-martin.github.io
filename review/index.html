@@ -337,8 +337,9 @@ function ensureParents(review) {
 const moved = n => n.kind === "org" && !n.added && !n.dup && n.origParent != null && n.parentId !== n.origParent;
 const changed = n => !n.added && (moved(n) || fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f])));
 // Data leakage: a value that is correct but not supported by the source text.
-// Only possible on items the model produced, and only while the field has a value.
-const canLeak = (n, f) => !n.added && !n.dup && !isEmptyField(f, n.cur[f]);
+// It describes the model's value, so it can be marked on any field where the model gave a value,
+// and it stays marked if the reviewer corrects or clears the value, or deletes the whole item.
+const canLeak = (n, f) => !n.added && !n.dup && !!n.orig && !isEmptyField(f, n.orig[f]);
 const isLeak = (n, f) => !!(n.leak && n.leak[f]) && canLeak(n, f);
 const leakCount = n => fieldsOf(n).filter(f => isLeak(n, f)).length;
 
@@ -397,7 +398,9 @@ const invalid = (n, targets) => !!problem(n, targets);
 function tally(review) {
   const c = { correct: 0, edited: 0, deleted: 0, added: 0, duplicate: 0, unreviewed: 0, total: 0, invalid: 0, leak: 0 };
   const targets = dupTargets(review);
-  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted") { if (invalid(n, targets)) c.invalid++; c.leak += leakCount(n); } });
+  eachLive(review, n => { const s = status(n); c[s]++; c.total++; if (s !== "deleted" && invalid(n, targets)) c.invalid++; });
+  const walkLeak = n => { c.leak += leakCount(n); n.children.forEach(walkLeak); };
+  review.people.forEach(walkLeak);
   if (!review.people.length && !review.confirmedEmpty) { c.unreviewed++; c.total++; c.emptyPending = true; }
   return c;
 }
@@ -456,7 +459,7 @@ function reviewFromExport(x) {
     const val = (f, v) => clone(v ?? (f === "categories" ? [] : null));
     const orig = added ? null : Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.model)]));
     const cur = Object.fromEntries(fields.map(f => [f, val(f, deleted ? e.fields?.[f]?.model : e.fields?.[f]?.corrected)]));
-    const leak = {}; if (!added && !deleted && !dup) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
+    const leak = {}; if (!added && !dup) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
     const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
     if (kind === "org" && !added && !dup) n.origParent = e.original_parent_id ?? e.parent_id ?? null;
@@ -745,7 +748,7 @@ function renderNode(n, depth, locked) {
     h("span", { class: "kind" }, kindText(n, depth)),
     h("span", { class: "node-title" }, nodeLabel(n)),
     h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
-    h("span", { class: "leak-count" }, !locked && s !== "deleted" && leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
+    h("span", { class: "leak-count" }, leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
     h("span", { class: "problem" }, !locked && s !== "deleted" ? (problem(n, curTargets()) || "") : ""),
     h("span", { class: "moved-note" }, !locked && s !== "deleted" ? movedText(n) : ""),
     h("span", { class: "actions" }, actionButtons(n, locked)),
@@ -787,9 +790,13 @@ function fillField(wrap, n, f, dis) {
   const label = h("label", { class: "fld-label", for: id }, LABEL[f]);
   const was = h("span", { class: "was" }, wasText(n, f));
   const leakBtn = (n.added || n.dup) ? null : h("button", { class: "leak-btn", type: "button", "aria-pressed": String(isLeak(n, f)),
-    disabled: dis || !canLeak(n, f), "aria-label": `Data leakage: ${LABEL[f]}`,
-    title: "Data leakage: the value is correct but not supported by the source text (probably from the model's training data)",
-    onclick: () => { n.leak ||= {}; if (isLeak(n, f)) delete n.leak[f]; else n.leak[f] = true; onEdit(n, f); syncLeak(wrap, n, f, dis); } }, "Leakage");
+    disabled: !canLeak(n, f), "aria-label": `Data leakage: ${LABEL[f]}`,
+    title: "Data leakage in the model's value: correct, but not supported by the source text (probably from the model's training data). Stays marked if you correct or remove the value.",
+    onclick: () => {
+      n.leak ||= {}; if (isLeak(n, f)) delete n.leak[f]; else n.leak[f] = true;
+      if (dis) { n.t = nowIso(); updateLeakCount(n); touch(); } else onEdit(n, f);
+      syncLeak(wrap, n, f);
+    } }, "Leakage");
   wrap.classList.toggle("leak", isLeak(n, f));
   let control;
   if (f === "categories") {
@@ -833,10 +840,14 @@ function fillField(wrap, n, f, dis) {
   }
   wrap.replaceChildren(h("div", { class: "fld-top" }, label, leakBtn), control, was);
 }
-function refreshWas(wrap, n, f) { const w = wasText(n, f); wrap.classList.toggle("changed", !!w); wrap.querySelector(":scope > .was").textContent = w; syncLeak(wrap, n, f, false); }
-function syncLeak(wrap, n, f, dis) {
+function refreshWas(wrap, n, f) { const w = wasText(n, f); wrap.classList.toggle("changed", !!w); wrap.querySelector(":scope > .was").textContent = w; syncLeak(wrap, n, f); }
+function updateLeakCount(n) {
+  const el = nodeEl(n), lc = leakCount(n);
+  if (el) el.querySelector(":scope > .node-head .leak-count").textContent = lc ? `Leakage ${lc}` : "";
+}
+function syncLeak(wrap, n, f) {
   const b = wrap.querySelector(".leak-btn"); wrap.classList.toggle("leak", isLeak(n, f));
-  if (b) { b.setAttribute("aria-pressed", String(isLeak(n, f))); b.disabled = dis || !canLeak(n, f); }
+  if (b) { b.setAttribute("aria-pressed", String(isLeak(n, f))); b.disabled = !canLeak(n, f); }
 }
 
 const nodeEl = n => $("treeBody").querySelector(`[data-id="${CSS.escape(n.id)}"]`);
@@ -854,7 +865,6 @@ function refreshChrome(n) {
 
 /* ---------- edits ---------- */
 function onEdit(n, f) {
-  if (f && n.leak && n.leak[f] && !canLeak(n, f)) delete n.leak[f];   // emptied fields can't be leakage
   if (!n.added && !n.dup) {
     const ch = changed(n) || leakCount(n) > 0;
     if (ch && n.decision === null) { n.decision = "accept"; n.auto = true; }
@@ -996,7 +1006,8 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      node_deleted  the whole node was deleted; a model value here is an FP
      node_added    the reviewer added the node; a value here is an FN
      duplicated    copied onto a duplicate (second spell) unchanged: not counted
-   Separately, a kept field can be marked as data leakage (correct, but not supported by the text).
+   Separately, any field where the model gave a value can be marked as data leakage (correct, but not
+   supported by the text), including values the reviewer then corrected, cleared or deleted.
    "<unknown>" and the date range 0000-00:0000-00 count as empty. List fields (categories, dates) are also scored item by item. */
 const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
 const itemSet = (f, v) => new Set(cleanList(f, v));
@@ -1117,7 +1128,7 @@ function buildExport(f, reviewer) {
     e.fields = {};
     fieldsOf(n).forEach(k => {
       const r = scoreField(k, n.orig ? n.orig[k] : null, n.cur[k], mode);
-      r.leakage = mode === "kept" && isLeak(n, k);
+      r.leakage = (mode === "kept" || mode === "deleted") && isLeak(n, k);
       e.fields[k] = r; addToCounts(counts, k, r);
     });
     log.push(e);
