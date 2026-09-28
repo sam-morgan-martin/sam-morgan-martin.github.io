@@ -140,6 +140,10 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .node.st-duplicate { --rail: var(--dup); border-left-style: solid; }
 .problem { flex-basis: 100%; font-size: 12.5px; color: var(--del); padding-left: 30px; }
 .problem:empty { display: none; }
+.moved-note { flex-basis: 100%; font-size: 12.5px; color: var(--edit); padding-left: 30px; }
+.moved-note:empty { display: none; }
+.move-row { flex-basis: 100%; min-width: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 0 2px 30px; }
+.move-row select { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; min-width: 0; width: 100%; flex: 1 1 100%; }
 .empty-doc { border: 1px dashed var(--line); border-radius: 6px; padding: 12px 14px; margin: 10px 0; color: var(--muted); }
 .empty-doc p { margin: 0 0 8px; }
 .empty-doc.done { border-style: solid; border-color: var(--ok); }
@@ -321,7 +325,17 @@ function cmpVal(f, v) {
 }
 const eq = (f, a, b) => JSON.stringify(cmpVal(f, a)) === JSON.stringify(cmpVal(f, b));
 const fieldsOf = n => n.kind === "person" ? PF : OF;
-const changed = n => !n.added && fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f]));
+// Where an organization sits now (parentId) vs. where the model put it (origParent).
+function ensureParents(review) {
+  const walk = (n, parentId) => {
+    n.parentId = parentId;
+    if (n.kind === "org" && !n.added && !n.dup && n.origParent === undefined) n.origParent = parentId;
+    n.children.forEach(c => walk(c, n.id));
+  };
+  review.people.forEach(p => walk(p, null));
+}
+const moved = n => n.kind === "org" && !n.added && !n.dup && n.origParent != null && n.parentId !== n.origParent;
+const changed = n => !n.added && (moved(n) || fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f])));
 // Data leakage: a value that is correct but not supported by the source text.
 // Only possible on items the model produced, and only while the field has a value.
 const canLeak = (n, f) => !n.added && !n.dup && !isEmptyField(f, n.cur[f]);
@@ -445,6 +459,7 @@ function reviewFromExport(x) {
     const leak = {}; if (!added && !deleted && !dup) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
     const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
+    if (kind === "org" && !added && !dup) n.origParent = e.original_parent_id ?? e.parent_id ?? null;
     if (dup) { n.dup = dup; n.decision = "accept"; n.cur = Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.corrected ?? (f === "year_month_spans" ? null : e.fields?.[f]?.model))])); }
     const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
     byId.set(n.id, n);
@@ -515,6 +530,7 @@ async function loadFiles(list) {
       review: restoreAutosave(base, h0) || buildReview({ people: [] }) });
     S.pendingText.delete(base); nBlank++;
   }
+  for (const fe of S.files.values()) if (fe.review) ensureParents(fe.review);
   refreshCatCodes();
   if (!S.current || !S.files.get(S.current)?.review) {
     const first = sortedBases().find(b => S.files.get(b).review);
@@ -592,7 +608,7 @@ function renderFileItem(f) {
 }
 function selectFile(base) {
   if (!S.files.get(base)?.review) return;
-  S.current = base; S.open.clear(); S.search = { terms: [], idx: 0, count: 0 };
+  S.current = base; S.open.clear(); S.moving = null; S.search = { terms: [], idx: 0, count: 0 };
   $("search").value = ""; $("searchNote").textContent = "";
   renderAll(); $("treeBody").parentElement.scrollTop = 0; $("sourceBody").parentElement.scrollTop = 0;
 }
@@ -701,6 +717,9 @@ function actionButtons(n, locked) {
   if (s === "edited") B.push(h("button", { onclick: () => revert(n) }, "Revert edits"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
   if (s === "deleted") B.push(h("button", { onclick: set(null) }, "Restore"));
   if (s === "added" || s === "duplicate") B.push(h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove"));
+  if (n.kind === "org" && ["unreviewed", "correct", "edited", "added"].includes(s) && moveTargets(n).length)
+    B.push(h("button", { onclick: () => { S.moving = S.moving === n.id ? null : n.id; renderTree(); }, "aria-expanded": String(S.moving === n.id),
+      title: "Make this an independent organization, or a sub-organization of another organization" }, "Move"));
   if (n.kind === "org" && ["unreviewed", "correct", "edited"].includes(s))
     B.push(h("button", { onclick: () => duplicateOrg(n), title: "The model merged two separate spells at this organization into one. Makes a copy for the second spell." }, "Duplicate"));
   if (s !== "deleted" && s !== "added" && s !== "duplicate" && hasDup(n))
@@ -728,7 +747,9 @@ function renderNode(n, depth, locked) {
     h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
     h("span", { class: "leak-count" }, !locked && s !== "deleted" && leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
     h("span", { class: "problem" }, !locked && s !== "deleted" ? (problem(n, curTargets()) || "") : ""),
-    h("span", { class: "actions" }, actionButtons(n, locked)));
+    h("span", { class: "moved-note" }, !locked && s !== "deleted" ? movedText(n) : ""),
+    h("span", { class: "actions" }, actionButtons(n, locked)),
+    !locked && S.moving === n.id ? moveRow(n) : null);
   el.append(head);
   if (open) {
     const dis = locked || s === "deleted";
@@ -826,6 +847,7 @@ function refreshChrome(n) {
   el.className = el.className.replace(/\bst-\w+/, "st-" + s);
   el.querySelector(":scope > .node-head .badge").textContent = STATUS_TEXT[s];
   const lc = leakCount(n); el.querySelector(":scope > .node-head .leak-count").textContent = lc ? `Leakage ${lc}` : "";
+  el.querySelector(":scope > .node-head .moved-note").textContent = s !== "deleted" ? movedText(n) : "";
   el.querySelector(":scope > .node-head .problem").textContent = s !== "deleted" ? (problem(n, curTargets()) || "") : "";
   el.querySelector(":scope > .node-head .actions").replaceChildren(...actionButtons(n, false));
 }
@@ -848,6 +870,12 @@ function decide(n, d) {
 }
 function revert(n) {
   n.cur = clone(n.orig); n.leak = {}; n.decision = null; n.auto = false; n.t = nowIso();
+  if (moved(n)) {
+    const back = findNode(cur().review, n.origParent);
+    const gone = !back || back.anc.concat(back.node).some(a => a.decision === "delete");
+    if (gone) toast("Its original parent organization has been deleted, so it stays where it is.");
+    else placeInto(n, n.origParent, true);
+  }
   renderTree(); touch();
 }
 const curTargets = () => cur() ? dupTargets(cur().review) : new Set();
@@ -855,7 +883,7 @@ const hasDup = n => curTargets().has(n.id);
 function duplicateOrg(n) {
   const f = cur(), r = findNode(f.review, n.id); if (!r) return;
   const d = newNode(f.review, "org");
-  d.dup = n.id; d.added = false; d.decision = "accept";
+  d.dup = n.id; d.added = false; d.decision = "accept"; d.parentId = n.parentId;
   d.orig = clone(n.orig); d.orig.year_month_spans = null;      // the model gave no dates for the second spell
   d.cur = clone(n.cur); d.cur.year_month_spans = null;
   let at = r.idx + 1; while (at < r.list.length && r.list[at].dup === n.id) at++;
@@ -865,6 +893,61 @@ function duplicateOrg(n) {
   const el = nodeEl(d);
   if (el) { el.scrollIntoView({ block: "center" }); el.querySelector('[data-field="year_month_spans"] button')?.focus({ preventScroll: true }); }
 }
+function orgLabel(o) {
+  const spans = cleanList("year_month_spans", o.cur.year_month_spans);
+  return nodeLabel(o) + (o.dup ? " (second spell)" : "") + (spans.length ? ` [${spans.join(", ")}]` : "");
+}
+function personOf(review, n) { const r = findNode(review, n.id); return r ? (r.anc[0] || r.node) : null; }
+// Destinations within the same person: top level, or under any live organization outside n's own subtree.
+function moveTargets(n) {
+  const f = cur(); if (!f) return [];
+  const person = personOf(f.review, n); if (!person) return [];
+  const out = [];
+  if (n.parentId !== person.id) out.push({ id: person.id, label: "Independent organization (not under another organization)" });
+  const walk = (o, depth) => {
+    if (o === n || o.dup === n.id || status(o) === "deleted") return;
+    if (o.id !== n.parentId) out.push({ id: o.id, label: `${"  ".repeat(depth)}Sub-organization of: ${orgLabel(o)}` });
+    o.children.forEach(c => walk(c, depth + 1));
+  };
+  person.children.forEach(o => walk(o, 0));
+  return out;
+}
+function moveRow(n) {
+  const targets = moveTargets(n);
+  const sel = h("select", { "aria-label": "Move to" }, targets.map(t => h("option", { value: t.id }, t.label.replace(/^ +/, m => "\u00a0".repeat(m.length * 2)))));
+  setTimeout(() => sel.focus(), 0);
+  return h("div", { class: "move-row" }, h("span", { class: "fld-label" }, "Move to"), sel,
+    h("button", { class: "primary", onclick: () => moveOrg(n, sel.value) }, "Move"),
+    h("button", { onclick: () => { S.moving = null; renderTree(); } }, "Cancel"));
+}
+const origIdx = n => { const m = /\[(\d+)\]$/.exec(n.path || ""); return m ? +m[1] : Infinity; };
+function placeInto(n, destId, backToOriginal) {
+  const f = cur(), r = findNode(f.review, n.id), dest = findNode(f.review, destId)?.node;
+  if (!r || !dest) return false;
+  const group = [n, ...r.list.filter(x => x.dup === n.id)];        // second spells travel with their organization
+  group.forEach(x => r.list.splice(r.list.indexOf(x), 1));
+  let at = dest.children.length;
+  if (backToOriginal) {   // return to the model's position among its original siblings
+    const i = dest.children.findIndex(c => !c.added && !c.dup && c.origParent === n.origParent && origIdx(c) > origIdx(n));
+    if (i >= 0) at = i;
+  }
+  dest.children.splice(at, 0, ...group);
+  group.forEach(x => x.parentId = dest.id);
+  S.open.set(dest.id, true); S.open.set(n.id, true);
+  return true;
+}
+function moveOrg(n, destId) {
+  if (!placeInto(n, destId)) return;
+  S.moving = null;
+  onEdit(n);                        // a move is a correction, like an edit
+  renderTree(); touch();
+  const el = nodeEl(n); if (el) { el.scrollIntoView({ block: "center" }); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+}
+function movedText(n) {
+  if (!moved(n)) return "";
+  const f = cur(), o = f && findNode(f.review, n.origParent)?.node;
+  return o && o.kind === "org" ? `Moved. The model had it as a sub-organization of ${nodeLabel(o)}.` : "Moved. The model had it as an independent organization.";
+}
 function removeAdded(n) {
   const f = cur(), r = findNode(f.review, n.id); if (!r) return;
   r.list.splice(r.idx, 1); renderTree(); touch();
@@ -872,6 +955,7 @@ function removeAdded(n) {
 function addChild(parent, kind) {
   const f = cur(), n = newNode(f.review, kind);
   (parent ? parent.children : f.review.people).push(n);
+  n.parentId = parent ? parent.id : null;
   if (parent) S.open.set(parent.id, true);
   renderTree(); touch();
   const el = nodeEl(n); if (el) { el.scrollIntoView({ block: "center" }); el.querySelector("input")?.focus(); }
@@ -1012,11 +1096,21 @@ function mergeByKind(acc, byKind) {
 
 function buildExport(f, reviewer) {
   const log = [], byKind = {}, counts = {};
+  const structure = { kept_organizations: 0, moved: 0, made_independent: 0, made_sub_organization: 0, moved_to_other_parent: 0 };
   const visit = (n, parentId, depth, via) => {
     const st = n.dup ? "duplicate" : via ? "deleted" : status(n);
     const kind = n.kind === "person" ? "person" : depth > 1 ? "sub_organization" : "organization";
     const mode = n.dup ? (via ? "duplicate_deleted" : "duplicate") : st === "deleted" ? "deleted" : st === "added" ? "added" : "kept";
     const e = { node_id: n.id, kind, parent_id: parentId, original_path: (n.added || n.dup) ? null : n.path, status: st };
+    if (n.kind === "org" && !n.added && !n.dup) {
+      e.original_parent_id = n.origParent ?? parentId;
+      e.original_kind = /sub_organizations\[\d+\]$/.test(n.path || "") ? "sub_organization" : "organization";
+      if (moved(n)) e.moved = true;
+      if (st === "correct" || st === "edited") {
+        structure.kept_organizations++;
+        if (moved(n)) { structure.moved++; structure[e.original_kind === "sub_organization" ? (kind === "organization" ? "made_independent" : "moved_to_other_parent") : "made_sub_organization"]++; }
+      }
+    }
     if (n.dup) { e.duplicate_of = n.dup; e.duplicate_of_path = findNode(f.review, n.dup)?.node.path ?? null; }
     if (via) e.deleted_with_parent = true;
     if (n.t && !via) e.decided_at = n.t;
@@ -1040,7 +1134,7 @@ function buildExport(f, reviewer) {
   return { format: "extraction-review/2", source_file: f.base + ".json", source_text: f.base + ".txt",
     blank_record: !!f.blank, confirmed_empty: !f.review.people.length && !!f.review.confirmedEmpty, reviewer, exported_at: ts,
     review_history: (f.review.history || []).concat([{ reviewer, exported_at: ts }]),
-    summary: { by_kind: byKind, field_scores: fieldScores(counts) }, corrected, log };
+    summary: { by_kind: byKind, structure, field_scores: fieldScores(counts) }, corrected, log };
 }
 
 function csvCell(v) {
@@ -1058,14 +1152,15 @@ function outcomesCsv(exports) {
   return "\uFEFF" + rows.join("\r\n") + "\r\n";
 }
 function batchSummary(exports, reviewer) {
-  const counts = {}, byKind = {};
+  const counts = {}, byKind = {}, structure = {};
   exports.forEach(x => {
+    for (const [k, v] of Object.entries(x.summary.structure || {})) structure[k] = (structure[k] || 0) + v;
     const raw = {};
     for (const [f, v] of Object.entries(x.summary.field_scores)) raw[f] = { outcomes: v.outcomes, leakage: v.leakage, leakage_by_outcome: v.leakage_by_outcome, items_kept_nodes: v.items_kept_nodes, items_added_or_deleted_nodes: v.items_added_or_deleted_nodes };
     mergeCounts(counts, raw); mergeByKind(byKind, x.summary.by_kind);
   });
   return { format: "extraction-review-summary/2", reviewer, exported_at: nowIso(), files: exports.map(x => x.source_file),
-    by_kind: byKind, field_scores: fieldScores(counts) };
+    by_kind: byKind, structure, field_scores: fieldScores(counts) };
 }
 
 function gate(f) {
