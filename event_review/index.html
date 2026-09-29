@@ -269,9 +269,22 @@ const EVENT_TYPES = [
   "retirement", "dismissal", "left_russia", "prosecution", "threat_of_prosecution",
   "violent_attack", "threat_of_violence", "imprisonment", "house_arrest", "promotion"
 ];
-const DATE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
-// Events may have no dates (the text often doesn't give one), so a blank date box is simply ignored.
-const badDate = s => { const t = String(s ?? "").trim(); return t !== "" && !DATE_RE.test(t); };
+// A date is a single point (YYYY, YYYY-MM or YYYY-MM-DD), or a period start:end for continuous
+// events such as imprisonment (e.g. 1996-12:2004-01). The end can be "present" for an ongoing period.
+const POINT = "\\d{4}(?:-\\d{2}(?:-\\d{2})?)?";
+const DATE_RE = new RegExp(`^${POINT}(?::(?:${POINT}|present))?$`, "i");
+const DATE_HELP = "YYYY-MM for a single date, or start:end for a period (e.g. 1996-12:2004-01, or 2022-03:present). YYYY and YYYY-MM-DD also work; use 00 for an unknown month or day.";
+// Known part of a date, for comparing start and end: "1996-00" -> "1996"; null if the year is unknown.
+const knownPart = d => d.startsWith("0000") ? null : d.replace(/(-00)+$/, "");
+function dateProblem(s) {
+  const t = String(s ?? "").trim();
+  if (t === "") return null;   // events may have no dates (the text often doesn't give one), so a blank box is ignored
+  if (!DATE_RE.test(t)) return "Fix the dates: use YYYY-MM for a date, or YYYY-MM:YYYY-MM for a period.";
+  const [a, b] = t.split(":").map(x => x.toLowerCase() === "present" ? null : knownPart(x));
+  if (a && b) { const n = Math.min(a.length, b.length); if (a.slice(0, n) > b.slice(0, n)) return `Fix the dates: ${t} ends before it starts.`; }
+  return null;
+}
+const badDate = s => !!dateProblem(s);
 const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added", duplicate: "Duplicate" };
 const STORE = "ev1:";
 const FORMAT = "event-review/1", SUMMARY_FORMAT = "event-review-summary/1";
@@ -319,13 +332,13 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { 
 
 /* ---------- model ---------- */
 function norm(f, v) {
-  if (f === "dates") { const a = (v == null ? [] : Array.isArray(v) ? v : [v]).map(s => String(s ?? "").trim()).filter(Boolean); return a.length ? a : null; }
+  if (f === "dates") { const a = (v == null ? [] : Array.isArray(v) ? v : [v]).map(s => String(s ?? "").trim().replace(/:present$/i, ":present")).filter(Boolean); return a.length ? a : null; }
   if (v == null) return null;
   const t = String(v).trim(); return t === "" ? null : t;
 }
 const UNKNOWN = "<unknown>";
 const LIST_FIELDS = new Set(["dates"]);
-const EMPTY_DATE_RE = /^0000(-00){0,2}$/; // fully unknown date: treated as no date
+const EMPTY_DATE_RE = /^0000(-00){0,2}(:0000(-00){0,2})?$/; // fully unknown date or period: treated as no date
 const cleanList = (f, v) => (norm(f, v) || []).filter(s => s !== "" && !EMPTY_DATE_RE.test(s));
 function cmpVal(f, v) {
   const x = norm(f, v);
@@ -395,7 +408,7 @@ function problem(n, targets) {
   const type = norm("event_type", n.cur.event_type);
   if (!type) return "Choose an event type.";
   if (!EVENT_TYPES.includes(type)) return `Choose an event type from the list: “${type}” isn't one of them.`;
-  if ((n.cur.dates || []).some(badDate)) return "Fix the dates: use YYYY, YYYY-MM or YYYY-MM-DD.";
+  for (const d of n.cur.dates || []) { const p = dateProblem(d); if (p) return p; }
   return null;
 }
 const invalid = (n, targets) => !!problem(n, targets);
@@ -669,7 +682,7 @@ const MONTH_STEMS = [["январ"], ["феврал"], ["март"], ["апре�
 function findEvent(n) {
   const f = cur(); if (!f || f.text == null) return;
   const terms = [];
-  cleanList("dates", n.cur.dates).forEach(d => {
+  cleanList("dates", n.cur.dates).flatMap(d => d.split(":")).forEach(d => {
     const m = /^(\d{4})(?:-(\d{2}))?/.exec(d); if (!m) return;
     if (m[1] !== "0000") terms.push(m[1]);
     if (m[2] && +m[2] >= 1 && +m[2] <= 12) terms.push(...MONTH_STEMS[+m[2] - 1]);
@@ -831,8 +844,8 @@ function fillField(wrap, n, f, dis) {
   if (f === "dates") {
     const list = n.cur.dates || [];
     const rows = list.map((v, i) => {
-      const inp = h("input", { value: v, placeholder: "YYYY-MM", disabled: dis, id: i === 0 ? id : null,
-        "aria-label": `Date ${i + 1}`, title: "YYYY, YYYY-MM or YYYY-MM-DD. Use 00 for an unknown month or day (e.g. 2011-00)", class: badDate(v) ? "bad" : null });
+      const inp = h("input", { value: v, placeholder: "YYYY-MM or YYYY-MM:YYYY-MM", disabled: dis, id: i === 0 ? id : null,
+        "aria-label": `Date ${i + 1}`, title: DATE_HELP, class: badDate(v) ? "bad" : null });
       inp.addEventListener("input", () => {
         n.cur.dates[i] = inp.value;
         inp.classList.toggle("bad", badDate(inp.value));
@@ -1024,7 +1037,8 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      duplicated    copied onto a duplicate (second occurrence) unchanged: not counted
    Separately, any field where the model gave a value can be marked as data leakage (correct, but not
    supported by the text), including values the reviewer then corrected, cleared or deleted.
-   "<unknown>" and the dates 0000 / 0000-00 / 0000-00-00 count as empty. The list field (dates) is also scored item by item. */
+   "<unknown>" and fully unknown dates (0000-00, 0000-00:0000-00) count as empty. The list field (dates) is also scored
+   item by item; a period start:end is one item, so it only matches if both ends match. */
 const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
 const itemSet = (f, v) => new Set(cleanList(f, v));
 function scoreField(f, mRaw, cRaw, mode) {
