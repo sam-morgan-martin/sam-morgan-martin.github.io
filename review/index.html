@@ -698,7 +698,7 @@ function renderTree() {
       : h("button", { class: "act-ok", onclick: () => { r.confirmedEmpty = true; r.emptyAt = nowIso(); renderTree(); touch(); } }, "Nothing to add"));
   body.replaceChildren(
     ...r.people.map(p => renderNode(p, 0, false)),
-    emptyPanel,
+    (emptyPanel ? [emptyPanel] : []),
     h("div", { class: "add-row" }, h("button", { onclick: () => addChild(null, "person") }, "Add person")));
   pane.scrollTop = top;
 }
