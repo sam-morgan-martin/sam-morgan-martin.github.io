@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Extraction review</title>
+<title>Event review</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -66,7 +66,11 @@ input[type="text"], input:not([type]) {
   background: var(--field); border: 1px solid var(--line); border-radius: 4px;
   padding: 4px 7px; width: 100%; min-width: 0;
 }
-input:disabled { opacity: .6; }
+input:disabled, select:disabled { opacity: .6; }
+.fld > select {
+  font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 7px; width: 100%; min-width: 0;
+}
 
 /* header */
 .top {
@@ -168,7 +172,7 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px; }
 .fld { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fld-label { font-size: 12px; color: var(--muted); }
-.fld.changed input { border-color: var(--edit); }
+.fld.changed input, .fld.changed select { border-color: var(--edit); }
 .was { font-size: 12px; color: var(--edit); overflow-wrap: anywhere; }
 .was:empty { display: none; }
 .fld-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 20px; }
@@ -177,7 +181,7 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.3f
 :root[data-theme="dark"] .leak-btn[aria-pressed="true"] { color: #1A1030; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .leak-btn[aria-pressed="true"] { color: #1A1030; } }
 .leak-btn:disabled { opacity: .35; cursor: default; }
-.fld.leak > input, .fld.leak .span-row input, .fld.leak .chips { border-color: var(--leak); box-shadow: inset 3px 0 0 var(--leak); }
+.fld.leak > input, .fld.leak > select, .fld.leak .span-row input, .fld.leak .chips { border-color: var(--leak); box-shadow: inset 3px 0 0 var(--leak); }
 .leak-count { font-size: 12px; color: var(--leak); }
 .leak-count:empty { display: none; }
 .tally .t-leak { border-color: var(--leak); color: var(--leak); }
@@ -219,7 +223,7 @@ body.dragging .drop-hint { display: flex; }
 </head>
 <body>
 <header class="top">
-  <h1>Extraction review</h1>
+  <h1>Event review</h1>
   <label>Reviewer <input id="reviewer" type="text" autocomplete="name" placeholder="Your name"></label>
   <button id="loadBtn">Load files</button>
   <input id="fileInput" type="file" multiple accept=".json,.txt,.zip" hidden>
@@ -242,12 +246,11 @@ body.dragging .drop-hint { display: flex; }
     </div>
     <div class="source-body" id="sourceBody"></div>
   </section>
-  <section class="pane tree" aria-label="Extracted records">
+  <section class="pane tree" aria-label="Extracted people and events">
     <div class="pane-head" id="treeHead"></div>
     <div class="tree-body" id="treeBody"></div>
   </section>
 </main>
-<datalist id="catCodes"></datalist>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="drop-hint">Drop files here to load them</div>
 
@@ -256,15 +259,20 @@ body.dragging .drop-hint { display: flex; }
 "use strict";
 
 const PF = ["name", "family_name", "given_name", "middle_name"];
-const OF = ["org_name", "title", "categories", "year_month_spans", "town_city", "region", "country"];
+const EF = ["event_type", "dates", "town_city", "region", "country"];
 const LABEL = {
   name: "Full name", family_name: "Family name", given_name: "Given name", middle_name: "Middle name",
-  org_name: "Organization", title: "Title", categories: "Categories", year_month_spans: "Dates",
-  town_city: "City", region: "Region", country: "Country"
+  event_type: "Event type", dates: "Dates", town_city: "City", region: "Region", country: "Country"
 };
-const SPAN_RE = /^\d{4}-\d{2}:(\d{4}-\d{2}|present)$/i;
+const EVENT_TYPES = [
+  "death", "death_sudden_illness", "death_long_term_illness", "death_in_combat", "vehicle_crash",
+  "retirement", "dismissal", "left_russia", "prosecution", "threat_of_prosecution",
+  "violent_attack", "threat_of_violence", "imprisonment", "house_arrest", "promotion"
+];
+const DATE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
 const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added", duplicate: "Duplicate" };
-const STORE = "xr1:";
+const STORE = "ev1:";
+const FORMAT = "event-review/1", SUMMARY_FORMAT = "event-review-summary/1";
 
 const S = {
   files: new Map(),       // base -> {base, hash, json, text, review, error}
@@ -309,32 +317,31 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { 
 
 /* ---------- model ---------- */
 function norm(f, v) {
-  if (f === "year_month_spans") { const a = (v || []).map(s => String(s).trim().replace(/:present$/i, ":present")); return a.length ? a : null; }
-  if (f === "categories") return (v || []).map(s => String(s).trim()).filter(Boolean);
+  if (f === "dates") { const a = (v == null ? [] : Array.isArray(v) ? v : [v]).map(s => String(s).trim()); return a.length ? a : null; }
   if (v == null) return null;
   const t = String(v).trim(); return t === "" ? null : t;
 }
 const UNKNOWN = "<unknown>";
-const LIST_FIELDS = new Set(["categories", "year_month_spans"]);
-const EMPTY_SPAN = "0000-00:0000-00"; // fully unknown date range: treated as no date
-const cleanList = (f, v) => { const x = norm(f, v) || []; return f === "year_month_spans" ? x.filter(s => s !== EMPTY_SPAN) : x; };
+const LIST_FIELDS = new Set(["dates"]);
+const EMPTY_DATE_RE = /^0000(-00){0,2}$/; // fully unknown date: treated as no date
+const cleanList = (f, v) => (norm(f, v) || []).filter(s => s !== "" && !EMPTY_DATE_RE.test(s));
 function cmpVal(f, v) {
   const x = norm(f, v);
   if (LIST_FIELDS.has(f)) { const c = cleanList(f, v); return c.length ? Array.from(new Set(c)).sort() : null; }
   return x === UNKNOWN ? null : x;
 }
 const eq = (f, a, b) => JSON.stringify(cmpVal(f, a)) === JSON.stringify(cmpVal(f, b));
-const fieldsOf = n => n.kind === "person" ? PF : OF;
-// Where an organization sits now (parentId) vs. where the model put it (origParent).
+const fieldsOf = n => n.kind === "person" ? PF : EF;
+// Which person an event belongs to now (parentId) vs. the person the model gave it to (origParent).
 function ensureParents(review) {
   const walk = (n, parentId) => {
     n.parentId = parentId;
-    if (n.kind === "org" && !n.added && !n.dup && n.origParent === undefined) n.origParent = parentId;
+    if (n.kind === "event" && !n.added && !n.dup && n.origParent === undefined) n.origParent = parentId;
     n.children.forEach(c => walk(c, n.id));
   };
   review.people.forEach(p => walk(p, null));
 }
-const moved = n => n.kind === "org" && !n.added && !n.dup && n.origParent != null && n.parentId !== n.origParent;
+const moved = n => n.kind === "event" && !n.added && !n.dup && n.origParent != null && n.parentId !== n.origParent;
 const changed = n => !n.added && (moved(n) || fieldsOf(n).some(f => !eq(f, n.orig[f], n.cur[f])));
 // Data leakage: a value that is correct but not supported by the source text.
 // It describes the model's value, so it can be marked on any field where the model gave a value,
@@ -351,14 +358,10 @@ function status(n) {
   return "unreviewed";
 }
 
-function buildOrg(o, id, path) {
-  const orig = {}; OF.forEach(f => orig[f] = clone(o[f] ?? null));
-  if (!Array.isArray(orig.categories)) orig.categories = orig.categories ? [orig.categories] : [];
-  if (orig.year_month_spans != null && !Array.isArray(orig.year_month_spans)) orig.year_month_spans = [orig.year_month_spans];
-  return {
-    id, kind: "org", path, orig, cur: clone(orig), decision: null, auto: false, added: false, t: null,
-    children: (o.sub_organizations || []).map((s, i) => buildOrg(s, id + ".s" + i, path + ".sub_organizations[" + i + "]"))
-  };
+function buildEvent(e, id, path) {
+  const orig = {}; EF.forEach(f => orig[f] = clone(e[f] ?? null));
+  if (orig.dates != null && !Array.isArray(orig.dates)) orig.dates = [orig.dates];
+  return { id, kind: "event", path, orig, cur: clone(orig), decision: null, auto: false, added: false, t: null, children: [] };
 }
 function buildReview(json) {
   return {
@@ -368,14 +371,14 @@ function buildReview(json) {
       return {
         id: "p" + i, kind: "person", path: "people[" + i + "]", orig, cur: clone(orig),
         decision: null, auto: false, added: false, t: null,
-        children: (p.organizations || []).map((o, j) => buildOrg(o, "p" + i + ".o" + j, "people[" + i + "].organizations[" + j + "]"))
+        children: (p.events || []).map((e, j) => buildEvent(e, "p" + i + ".e" + j, "people[" + i + "].events[" + j + "]"))
       };
     })
   };
 }
 function newNode(review, kind) {
-  const fields = kind === "person" ? PF : OF, cur = {};
-  fields.forEach(f => cur[f] = f === "categories" ? [] : null);
+  const fields = kind === "person" ? PF : EF, cur = {};
+  fields.forEach(f => cur[f] = null);
   return { id: "new" + (review.nextNew++), kind, path: null, orig: null, cur, decision: null, auto: false, added: true, t: nowIso(), children: [] };
 }
 
@@ -383,15 +386,17 @@ function eachLive(review, cb) {
   const visit = (n, depth) => { cb(n, depth); if (status(n) !== "deleted") n.children.forEach(c => visit(c, depth + 1)); };
   review.people.forEach(p => visit(p, 0));
 }
-// Ids of organizations that have a live duplicate (the model merged two spells there).
+// Ids of events that have a live duplicate (the model merged two occurrences into one event).
 function dupTargets(review) { const t = new Set(); eachLive(review, n => { if (n.dup) t.add(n.dup); }); return t; }
 function problem(n, targets) {
   if (n.kind === "person") return n.added && !norm("name", n.cur.name) ? "Add a name for this person." : null;
-  if (n.added && !norm("org_name", n.cur.org_name)) return "Add a name for this organization.";
-  if ((n.cur.year_month_spans || []).some(s => !SPAN_RE.test(String(s).trim()))) return "Fix the dates: use YYYY-MM:YYYY-MM or YYYY-MM:present.";
-  if (n.dup && !cleanList("year_month_spans", n.cur.year_month_spans).length) return "Add the dates for this duplicate.";
-  if (targets && targets.has(n.id) && eq("year_month_spans", n.orig.year_month_spans, n.cur.year_month_spans))
-    return "Split the dates: this organization still has the model's merged dates.";
+  const type = norm("event_type", n.cur.event_type);
+  if (!type) return "Choose an event type.";
+  if (!EVENT_TYPES.includes(type)) return `Choose an event type from the list: “${type}” isn't one of them.`;
+  if ((n.cur.dates || []).some(s => !DATE_RE.test(String(s).trim()))) return "Fix the dates: use YYYY, YYYY-MM or YYYY-MM-DD.";
+  if (n.dup && !cleanList("dates", n.cur.dates).length) return "Add the dates for this duplicate.";
+  if (targets && targets.has(n.id) && eq("dates", n.orig.dates, n.cur.dates))
+    return "Split the dates: this event still has the model's merged dates.";
   return null;
 }
 const invalid = (n, targets) => !!problem(n, targets);
@@ -450,20 +455,20 @@ async function readZip(buf) {
 
 // Rebuilds the working state from a downloaded .review.json so it can be edited again.
 function reviewFromExport(x) {
-  if (!x || x.format !== "extraction-review/2" || !Array.isArray(x.log)) throw new Error("made with an earlier version of this tool");
+  if (!x || x.format !== FORMAT || !Array.isArray(x.log)) throw new Error("made with an earlier version of this tool");
   const byId = new Map(), people = [];
   let maxNew = 0;
   for (const e of x.log) {
-    const kind = e.kind === "person" ? "person" : "org", fields = kind === "person" ? PF : OF;
+    const kind = e.kind === "person" ? "person" : "event", fields = kind === "person" ? PF : EF;
     const added = e.status === "added", deleted = e.status === "deleted", dup = e.duplicate_of || null;
-    const val = (f, v) => clone(v ?? (f === "categories" ? [] : null));
+    const val = (f, v) => clone(v ?? null);
     const orig = added ? null : Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.model)]));
     const cur = Object.fromEntries(fields.map(f => [f, val(f, deleted ? e.fields?.[f]?.model : e.fields?.[f]?.corrected)]));
     const leak = {}; if (!added && !dup) fields.forEach(f => { if (e.fields?.[f]?.leakage) leak[f] = true; });
     const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
-    if (kind === "org" && !added && !dup) n.origParent = e.original_parent_id ?? e.parent_id ?? null;
-    if (dup) { n.dup = dup; n.decision = "accept"; n.cur = Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.corrected ?? (f === "year_month_spans" ? null : e.fields?.[f]?.model))])); }
+    if (kind === "event" && !added && !dup) n.origParent = e.original_parent_id ?? e.parent_id ?? null;
+    if (dup) { n.dup = dup; n.decision = "accept"; n.cur = Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.corrected ?? (f === "dates" ? null : e.fields?.[f]?.model))])); }
     const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
     byId.set(n.id, n);
     if (e.parent_id == null) people.push(n);
@@ -482,7 +487,7 @@ function restoreAutosave(base, h) {
 
 async function loadFiles(list) {
   const items = [];
-  let errors = 0, skipped = 0;
+  let errors = 0, skipped = 0, otherTool = 0;
   for (const file of Array.from(list || [])) {
     const lower = file.name.toLowerCase();
     try {
@@ -499,8 +504,9 @@ async function loadFiles(list) {
     let parsed = null, err = null;
     try { parsed = JSON.parse(it.text); } catch (e) { err = e.message; }
     const fmt = parsed && typeof parsed.format === "string" ? parsed.format : "";
-    if (fmt.startsWith("extraction-review/")) reviews.push({ name, raw: it.text, parsed });
-    else if (fmt.startsWith("extraction-review")) skipped++;   // summary.json and similar
+    if (fmt.startsWith("event-review/")) reviews.push({ name, raw: it.text, parsed });
+    else if (fmt.startsWith("event-review")) skipped++;        // summary.json and similar
+    else if (fmt.startsWith("extraction-review")) otherTool++; // reviews from the organizations page
     else originals.push({ name, raw: it.text, parsed, err });
   }
   for (const t of txts) {
@@ -515,6 +521,7 @@ async function loadFiles(list) {
     if (existing?.blank && (existing.review.people.length || existing.review.confirmedEmpty)) { keptBlank++; continue; }
     const entry = { base, hash: hash(o.raw), json: o.parsed, text: takeText(base), review: null, error: null, fromReview: false };
     if (o.err || !o.parsed) { entry.error = "Not valid JSON: " + o.err; errors++; }
+    else if (looksLikeOrgRecord(o.parsed)) { entry.error = "This record lists organizations, not events. Review it on the organizations review page."; errors++; }
     else { entry.review = restoreAutosave(base, entry.hash) || buildReview(o.parsed); nOrig++; }
     S.files.set(base, entry);
   }
@@ -525,7 +532,7 @@ async function loadFiles(list) {
     catch (e) { entry.error = "Can't reopen this review: " + e.message + "."; errors++; }
     S.files.set(base, entry);
   }
-  // Texts with no record file: the pipeline writes none when it finds no organizations,
+  // Texts with no record file: the pipeline may write none when it finds nothing,
   // so start a blank record the reviewer can fill in (or confirm as empty).
   for (const [base, text] of Array.from(S.pendingText)) {
     const h0 = hash("blank:" + base);
@@ -534,7 +541,6 @@ async function loadFiles(list) {
     S.pendingText.delete(base); nBlank++;
   }
   for (const fe of S.files.values()) if (fe.review) ensureParents(fe.review);
-  refreshCatCodes();
   if (!S.current || !S.files.get(S.current)?.review) {
     const first = sortedBases().find(b => S.files.get(b).review);
     if (first) S.current = first;
@@ -546,7 +552,8 @@ async function loadFiles(list) {
   if (nOrig) parts.push(`${nOrig} record file${nOrig > 1 ? "s" : ""}`);
   if (nRev) parts.push(`${nRev} reviewed file${nRev > 1 ? "s" : ""}`);
   if (nTxt) parts.push(`${nTxt} source file${nTxt > 1 ? "s" : ""}`);
-  let msg = parts.length ? "Loaded " + parts.join(", ") + "." : (keptReviewed || keptBlank) ? "" : "No record, review or source files found in that selection.";
+  let msg = parts.length ? "Loaded " + parts.join(", ") + "." : (keptReviewed || keptBlank || otherTool) ? "" : "No record, review or source files found in that selection.";
+  if (otherTool) msg += ` Skipped ${otherTool} review${otherTool > 1 ? "s" : ""} made on the organizations review page.`;
   if (keptReviewed) msg += ` Kept the reviewed version of ${keptReviewed} file${keptReviewed > 1 ? "s" : ""} that ${keptReviewed > 1 ? "are" : "is"} already open instead of loading the original.`;
   if (nBlank) msg += ` ${nBlank} text${nBlank > 1 ? "s have" : " has"} no record file, so ${nBlank > 1 ? "blank records were" : "a blank record was"} started.`;
   if (keptBlank) msg += ` ${keptBlank} record file${keptBlank > 1 ? "s were" : " was"} not loaded because work had already started on a blank record for the same text. To use the model's record instead, reload the page and load it together with its text.`;
@@ -555,12 +562,8 @@ async function loadFiles(list) {
 }
 const sortedBases = () => Array.from(S.files.keys()).sort((a, b) => a.localeCompare(b, "ru"));
 
-function refreshCatCodes() {
-  const codes = new Set();
-  const visit = n => { (n.cur.categories || []).forEach(c => codes.add(c)); (n.orig?.categories || []).forEach(c => codes.add(c)); n.children.forEach(visit); };
-  for (const f of S.files.values()) if (f.review) f.review.people.forEach(p => p.children.forEach(visit));
-  const dl = $("catCodes"); dl.replaceChildren(...Array.from(codes).sort().map(c => h("option", { value: c })));
-}
+// A record from the organizations pipeline (people[].organizations) loaded here by mistake.
+const looksLikeOrgRecord = j => Array.isArray(j?.people) && j.people.some(p => p && "organizations" in p && !("events" in p));
 
 /* ---------- persistence ---------- */
 function touch(f) {
@@ -648,24 +651,44 @@ function stepHit(d) {
   S.search.idx = (S.search.idx + d + S.search.count) % S.search.count;
   renderSource(true);
 }
+const inText = (text, s) => text.toLocaleLowerCase("ru").includes(s.toLocaleLowerCase("ru"));
+const stemsOf = label => label.split(/[\s,.;:«»"'()\-–—]+/).filter(w => w.length >= 4)
+  .map(w => w.length > 6 ? w.slice(0, -2) : w.slice(0, Math.max(4, w.length - 1)));
+function showHits(terms, note) {
+  S.search.terms = terms; $("searchNote").textContent = note || "";
+  S.search.idx = 0; renderSource(true);
+  if (window.matchMedia("(max-width: 900px)").matches) $("sourceBody").parentElement.scrollIntoView({ block: "start" });
+}
 function findInText(label) {
   const f = cur(); if (!f || f.text == null || !label) return;
   $("search").value = label;
-  const exact = f.text.toLocaleLowerCase("ru").includes(label.toLocaleLowerCase("ru"));
-  if (exact) { S.search.terms = [label]; $("searchNote").textContent = ""; }
-  else {
-    const words = label.split(/[\s,.;:«»"'()\-–—]+/).filter(w => w.length >= 4);
-    S.search.terms = words.map(w => w.length > 6 ? w.slice(0, -2) : w.slice(0, Math.max(4, w.length - 1)));
-    $("searchNote").textContent = S.search.terms.length ? "No exact match; highlighting word stems instead." : "";
-  }
-  S.search.idx = 0; renderSource(true);
-  if (window.matchMedia("(max-width: 900px)").matches) $("sourceBody").parentElement.scrollIntoView({ block: "start" });
+  if (inText(f.text, label)) showHits([label]);
+  else { const st = stemsOf(label); showHits(st, st.length ? "No exact match; highlighting word stems instead." : ""); }
+}
+// Events have no name to look for, so highlight their years, months (as Russian month stems) and places.
+const MONTH_STEMS = [["январ"], ["феврал"], ["март"], ["апрел"], ["мая", "май"], ["июн"], ["июл"], ["август"], ["сентябр"], ["октябр"], ["ноябр"], ["декабр"]];
+function findEvent(n) {
+  const f = cur(); if (!f || f.text == null) return;
+  const terms = [];
+  cleanList("dates", n.cur.dates).forEach(d => {
+    const m = /^(\d{4})(?:-(\d{2}))?/.exec(d); if (!m) return;
+    if (m[1] !== "0000") terms.push(m[1]);
+    if (m[2] && +m[2] >= 1 && +m[2] <= 12) terms.push(...MONTH_STEMS[+m[2] - 1]);
+  });
+  ["town_city", "region", "country"].forEach(k => {
+    const v = norm(k, n.cur[k]); if (!v || v === UNKNOWN) return;
+    terms.push(...(inText(f.text, v) ? [v] : stemsOf(v)));
+  });
+  const uniq = Array.from(new Set(terms));
+  if (!uniq.length) { toast("This event has no dates or places to look for."); return; }
+  $("search").value = "";
+  showHits(uniq, "Highlighting this event's dates and places: " + uniq.join(", "));
 }
 
 /* ---------- rendering: tree ---------- */
 function emptyState() {
   return h("div", { class: "empty" },
-    h("p", null, "Load the model's .json files together with their source .txt files. Files are paired by name, so the text for “Name_part6.json” should be “Name_part6.txt”."),
+    h("p", null, "Load the model's event .json files together with their source .txt files. Files are paired by name, so the text for “Name_part5.json” should be “Name_part5.txt”."),
     h("p", null, "To keep working on finished reviews, load the downloaded .review.json files, or the .zip, with the same .txt files."),
     h("p", null, "You can also drag files onto this page."),
     h("button", { class: "primary", onclick: () => $("fileInput").click() }, "Load files"));
@@ -673,7 +696,7 @@ function emptyState() {
 
 function renderHead() {
   const head = $("treeHead"), f = cur();
-  if (!f) { head.replaceChildren(h("h2", null, "Records")); return; }
+  if (!f) { head.replaceChildren(h("h2", null, "People and events")); return; }
   const c = tally(f.review);
   head.replaceChildren(
     h("div", { class: "tally", "aria-label": "Review progress" },
@@ -691,14 +714,14 @@ function renderTree() {
   if (!f) { body.replaceChildren(); return; }
   const r = f.review, emptyPanel = r.people.length ? null : h("div", { class: "empty-doc" + (r.confirmedEmpty ? " done" : ""), id: "emptyDoc" },
     h("p", null, f.blank
-      ? "The pipeline produced no record for this text. Add any people and organizations the text mentions, or confirm there is nothing to add."
+      ? "The pipeline produced no record for this text. Add any people and events the text mentions, or confirm there is nothing to add."
       : "The model found no people in this text. Add any the text mentions, or confirm there is nothing to add."),
     r.confirmedEmpty
       ? [h("p", null, "Marked as having nothing to add."), h("button", { onclick: () => { r.confirmedEmpty = false; renderTree(); touch(); } }, "Undo")]
       : h("button", { class: "act-ok", onclick: () => { r.confirmedEmpty = true; r.emptyAt = nowIso(); renderTree(); touch(); } }, "Nothing to add"));
   body.replaceChildren(
     ...r.people.map(p => renderNode(p, 0, false)),
-    emptyPanel,
+    ...(emptyPanel ? [emptyPanel] : []),
     h("div", { class: "add-row" }, h("button", { onclick: () => addChild(null, "person") }, "Add person")));
   pane.scrollTop = top;
 }
@@ -707,9 +730,10 @@ const isOpen = n => S.open.has(n.id) ? S.open.get(n.id) : status(n) !== "deleted
 
 function nodeLabel(n) {
   if (n.kind === "person") return norm("name", n.cur.name) || "Unnamed person";
-  return norm("org_name", n.cur.org_name) || "Unnamed organization";
+  const dates = cleanList("dates", n.cur.dates);
+  return (norm("event_type", n.cur.event_type) || "Untyped event") + (dates.length ? ` (${dates.join(", ")})` : "");
 }
-function kindText(n, depth) { const k = n.kind === "person" ? "Person" : depth > 1 ? "Sub-organization" : "Organization"; return n.dup ? k + " (second spell)" : k; }
+function kindText(n) { const k = n.kind === "person" ? "Person" : "Event"; return n.dup ? k + " (second occurrence)" : k; }
 
 function actionButtons(n, locked) {
   if (locked) return [];
@@ -719,19 +743,25 @@ function actionButtons(n, locked) {
   if (s === "correct") B.push(h("button", { onclick: set(null) }, "Undo"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
   if (s === "edited") B.push(h("button", { onclick: () => revert(n) }, "Revert edits"), h("button", { class: "act-del", onclick: set("delete") }, "Delete"));
   if (s === "deleted") B.push(h("button", { onclick: set(null) }, "Restore"));
-  if (s === "added" || s === "duplicate") B.push(h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove"));
-  if (n.kind === "org" && ["unreviewed", "correct", "edited", "added"].includes(s) && moveTargets(n).length)
+  if (s === "added" || s === "duplicate") {
+    const b = h("button", { class: "act-del", onclick: () => removeAdded(n) }, "Remove");
+    if (hasModelChildren(n)) { b.disabled = true; b.title = "Move the model's events back to another person first"; }
+    B.push(b);
+  }
+  if (n.kind === "event" && ["unreviewed", "correct", "edited", "added"].includes(s) && moveTargets(n).length)
     B.push(h("button", { onclick: () => { S.moving = S.moving === n.id ? null : n.id; renderTree(); }, "aria-expanded": String(S.moving === n.id),
-      title: "Make this an independent organization, or a sub-organization of another organization" }, "Move"));
-  if (n.kind === "org" && ["unreviewed", "correct", "edited"].includes(s))
-    B.push(h("button", { onclick: () => duplicateOrg(n), title: "The model merged two separate spells at this organization into one. Makes a copy for the second spell." }, "Duplicate"));
+      title: "The event belongs to a different person. Moves it there." }, "Move"));
+  if (n.kind === "event" && ["unreviewed", "correct", "edited"].includes(s))
+    B.push(h("button", { onclick: () => duplicateEvent(n), title: "The model merged two separate occurrences of this event into one. Makes a copy for the second occurrence." }, "Duplicate"));
   if (s !== "deleted" && s !== "added" && s !== "duplicate" && hasDup(n))
-    B.forEach(b => { if (b.textContent === "Delete") { b.disabled = true; b.title = "Remove this organization's duplicates first"; } });
-  if (s !== "deleted" && cur()?.text != null) B.push(h("button", { class: "quiet", onclick: () => findInText(searchLabel(n)) }, "Find in text"));
+    B.forEach(b => { if (b.textContent === "Delete") { b.disabled = true; b.title = "Remove this event's duplicates first"; } });
+  if (s !== "deleted" && cur()?.text != null)
+    B.push(h("button", { class: "quiet", onclick: () => n.kind === "event" ? findEvent(n) : findInText(searchLabel(n)) }, "Find in text"));
   return B;
 }
+// An added person that now holds events the model gave to someone else can't be removed without losing them.
+const hasModelChildren = n => n.children.some(c => !c.added);
 function searchLabel(n) {
-  if (n.kind === "org") return norm("org_name", n.cur.org_name);
   const f = cur(), full = norm("name", n.cur.name);
   if (full && f.text.toLocaleLowerCase("ru").includes(full.toLocaleLowerCase("ru"))) return full;
   const fam = norm("family_name", n.cur.family_name);
@@ -740,12 +770,12 @@ function searchLabel(n) {
 
 function renderNode(n, depth, locked) {
   const s = locked ? "deleted" : status(n), open = isOpen(n);
-  const el = h("section", { class: `node ${n.kind === "person" ? "person" : "org"} st-${s}`, "data-id": n.id });
+  const el = h("section", { class: `node ${n.kind} st-${s}`, "data-id": n.id });
   const bodyId = "b-" + n.id.replace(/\W/g, "_");
   const head = h("div", { class: "node-head" },
     h("button", { class: "twisty", "aria-expanded": String(open), "aria-controls": bodyId, "aria-label": open ? "Collapse" : "Expand",
       onclick: () => { S.open.set(n.id, !open); renderTree(); } }),
-    h("span", { class: "kind" }, kindText(n, depth)),
+    h("span", { class: "kind" }, kindText(n)),
     h("span", { class: "node-title" }, nodeLabel(n)),
     h("span", { class: "badge" }, locked ? "Deleted with parent" : STATUS_TEXT[s]),
     h("span", { class: "leak-count" }, leakCount(n) ? `Leakage ${leakCount(n)}` : ""),
@@ -759,8 +789,8 @@ function renderNode(n, depth, locked) {
     const body = h("div", { class: "node-body", id: bodyId }, fieldGrid(n, dis));
     const kids = h("div", { class: "children" }, n.children.map(c => renderNode(c, depth + 1, dis)));
     body.append(kids);
-    if (!dis) body.append(h("div", { class: "add-row" },
-      h("button", { onclick: () => addChild(n, "org") }, n.kind === "person" ? "Add organization" : "Add sub-organization")));
+    if (!dis && n.kind === "person") body.append(h("div", { class: "add-row" },
+      h("button", { onclick: () => addChild(n, "event") }, "Add event")));
     el.append(body);
   }
   return el;
@@ -771,12 +801,12 @@ function display(f, v) {
   if (x == null || (Array.isArray(x) && !x.length)) return "empty";
   return Array.isArray(x) ? x.join(", ") : x;
 }
-function wasText(n, f) { return (!n.added && !(n.dup && f === "year_month_spans") && !eq(f, n.orig[f], n.cur[f])) ? "Model: " + display(f, n.orig[f]) : ""; }
+function wasText(n, f) { return (!n.added && !(n.dup && f === "dates") && !eq(f, n.orig[f], n.cur[f])) ? "Model: " + display(f, n.orig[f]) : ""; }
 
 function fieldGrid(n, dis) {
   const spans = n.kind === "person"
     ? { name: 6, family_name: 2, given_name: 2, middle_name: 2 }
-    : { org_name: 6, title: 6, categories: 3, year_month_spans: 3, town_city: 2, region: 2, country: 2 };
+    : { event_type: 3, dates: 3, town_city: 2, region: 2, country: 2 };
   return h("div", { class: "grid" }, fieldsOf(n).map(f => {
     const wrap = h("div", { class: "fld", style: `grid-column: span ${spans[f]}`, "data-field": f });
     fillField(wrap, n, f, dis);
@@ -799,43 +829,40 @@ function fillField(wrap, n, f, dis) {
     } }, "Leakage");
   wrap.classList.toggle("leak", isLeak(n, f));
   let control;
-  if (f === "categories") {
-    const list = n.cur.categories || (n.cur.categories = []);
-    const input = h("input", { id, list: "catCodes", placeholder: dis ? "" : "Add", disabled: dis, "aria-label": "Add category" });
-    const add = () => {
-      const vals = input.value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-      let added = false; vals.forEach(v => { if (!list.includes(v)) { list.push(v); added = true; } });
-      input.value = ""; if (added) { onEdit(n, f); fillField(wrap, n, f, dis); wrap.querySelector("input").focus(); }
-    };
-    input.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); } else if (e.key === "Backspace" && !input.value && list.length) { list.pop(); onEdit(n, f); fillField(wrap, n, f, dis); wrap.querySelector("input").focus(); } });
-    input.addEventListener("change", add);
-    control = h("div", { class: "chips" },
-      list.map((c, i) => h("span", { class: "chip" }, c, dis ? null : h("button", { "aria-label": "Remove " + c,
-        onclick: () => { list.splice(i, 1); onEdit(n, f); fillField(wrap, n, f, dis); } }, "×"))), input);
-  } else if (f === "year_month_spans") {
-    const list = n.cur.year_month_spans || [];
+  if (f === "dates") {
+    const list = n.cur.dates || [];
     const rows = list.map((v, i) => {
-      const inp = h("input", { value: v, placeholder: "YYYY-MM:YYYY-MM", disabled: dis, id: i === 0 ? id : null,
-        "aria-label": `Date range ${i + 1}`, title: "Use 00 for an unknown month, 0000 for an unknown year, and present for an ongoing role (e.g. 2008-00:present)", class: SPAN_RE.test(String(v).trim()) ? null : "bad" });
+      const inp = h("input", { value: v, placeholder: "YYYY-MM", disabled: dis, id: i === 0 ? id : null,
+        "aria-label": `Date ${i + 1}`, title: "YYYY, YYYY-MM or YYYY-MM-DD. Use 00 for an unknown month or day (e.g. 2011-00)", class: DATE_RE.test(String(v).trim()) ? null : "bad" });
       inp.addEventListener("input", () => {
-        n.cur.year_month_spans[i] = inp.value;
-        inp.classList.toggle("bad", !SPAN_RE.test(inp.value.trim()));
+        n.cur.dates[i] = inp.value;
+        inp.classList.toggle("bad", !DATE_RE.test(inp.value.trim()));
         onEdit(n, f); refreshWas(wrap, n, f);
       });
-      return h("div", { class: "span-row" }, inp, dis ? null : h("button", { "aria-label": `Remove date range ${i + 1}`,
-        onclick: () => { n.cur.year_month_spans.splice(i, 1); if (!n.cur.year_month_spans.length) n.cur.year_month_spans = null; onEdit(n, f); fillField(wrap, n, f, dis); } }, "×"));
+      return h("div", { class: "span-row" }, inp, dis ? null : h("button", { "aria-label": `Remove date ${i + 1}`,
+        onclick: () => { n.cur.dates.splice(i, 1); if (!n.cur.dates.length) n.cur.dates = null; onEdit(n, f); fillField(wrap, n, f, dis); } }, "×"));
     });
     control = h("div", null, rows, dis ? (list.length ? null : h("span", { class: "fld-label" }, "none")) :
       h("button", { class: "quiet", id: list.length ? null : id, onclick: () => {
-        n.cur.year_month_spans = (n.cur.year_month_spans || []).concat("");
+        n.cur.dates = (n.cur.dates || []).concat("");
         onEdit(n, f); fillField(wrap, n, f, dis); const ins = wrap.querySelectorAll("input"); ins[ins.length - 1].focus();
       } }, "Add dates"));
+  } else if (f === "event_type") {
+    // Fixed list of types. A model value that isn't on the list is shown so it can be seen and replaced.
+    const v = norm(f, n.cur[f]);
+    control = h("select", { id, disabled: dis },
+      h("option", { value: "" }, "Choose a type"),
+      v && !EVENT_TYPES.includes(v) ? h("option", { value: v, selected: true }, `${v} (not on the list)`) : null,
+      EVENT_TYPES.map(t => h("option", { value: t, selected: t === v }, t)));
+    control.addEventListener("change", () => {
+      n.cur[f] = control.value || null;
+      onEdit(n, f); refreshWas(wrap, n, f);
+    });
   } else {
     control = h("input", { id, type: "text", value: n.cur[f] ?? "", placeholder: "empty", disabled: dis });
     control.addEventListener("input", () => {
       n.cur[f] = control.value;
       onEdit(n, f); refreshWas(wrap, n, f);
-      if ((f === "org_name" || f === "name")) { const t = nodeEl(n)?.querySelector(":scope > .node-head .node-title"); if (t) t.textContent = nodeLabel(n); }
     });
   }
   wrap.replaceChildren(h("div", { class: "fld-top" }, label, leakBtn), control, was);
@@ -857,6 +884,7 @@ function refreshChrome(n) {
   const s = status(n);
   el.className = el.className.replace(/\bst-\w+/, "st-" + s);
   el.querySelector(":scope > .node-head .badge").textContent = STATUS_TEXT[s];
+  el.querySelector(":scope > .node-head .node-title").textContent = nodeLabel(n);
   const lc = leakCount(n); el.querySelector(":scope > .node-head .leak-count").textContent = lc ? `Leakage ${lc}` : "";
   el.querySelector(":scope > .node-head .moved-note").textContent = s !== "deleted" ? movedText(n) : "";
   el.querySelector(":scope > .node-head .problem").textContent = s !== "deleted" ? (problem(n, curTargets()) || "") : "";
@@ -872,7 +900,6 @@ function onEdit(n, f) {
   }
   n.t = nowIso();
   refreshChrome(n); touch();
-  if (n.kind === "org" && n.cur.categories) refreshCatCodes();
 }
 function decide(n, d) {
   n.decision = d; n.auto = false; n.t = nowIso(); S.open.delete(n.id);
@@ -883,58 +910,49 @@ function revert(n) {
   if (moved(n)) {
     const back = findNode(cur().review, n.origParent);
     const gone = !back || back.anc.concat(back.node).some(a => a.decision === "delete");
-    if (gone) toast("Its original parent organization has been deleted, so it stays where it is.");
+    if (gone) toast("The person the model gave it to has been deleted, so it stays where it is.");
     else placeInto(n, n.origParent, true);
   }
   renderTree(); touch();
 }
 const curTargets = () => cur() ? dupTargets(cur().review) : new Set();
 const hasDup = n => curTargets().has(n.id);
-function duplicateOrg(n) {
+function duplicateEvent(n) {
   const f = cur(), r = findNode(f.review, n.id); if (!r) return;
-  const d = newNode(f.review, "org");
+  const d = newNode(f.review, "event");
   d.dup = n.id; d.added = false; d.decision = "accept"; d.parentId = n.parentId;
-  d.orig = clone(n.orig); d.orig.year_month_spans = null;      // the model gave no dates for the second spell
-  d.cur = clone(n.cur); d.cur.year_month_spans = null;
+  d.orig = clone(n.orig); d.orig.dates = null;      // the model gave no dates for the second occurrence
+  d.cur = clone(n.cur); d.cur.dates = null;
   let at = r.idx + 1; while (at < r.list.length && r.list[at].dup === n.id) at++;
   r.list.splice(at, 0, d);
   S.open.set(d.id, true); S.open.set(n.id, true);
   renderTree(); touch();
   const el = nodeEl(d);
-  if (el) { el.scrollIntoView({ block: "center" }); el.querySelector('[data-field="year_month_spans"] button')?.focus({ preventScroll: true }); }
+  if (el) { el.scrollIntoView({ block: "center" }); el.querySelector('[data-field="dates"] button')?.focus({ preventScroll: true }); }
 }
-function orgLabel(o) {
-  const spans = cleanList("year_month_spans", o.cur.year_month_spans);
-  return nodeLabel(o) + (o.dup ? " (second spell)" : "") + (spans.length ? ` [${spans.join(", ")}]` : "");
+function personLabel(p, original) {
+  const k = p.children.filter(c => status(c) !== "deleted").length;
+  return nodeLabel(p) + (p.added ? " (added by you)" : "") + (original ? " (the model's choice)" : "") + ` [${k} event${k === 1 ? "" : "s"}]`;
 }
-function personOf(review, n) { const r = findNode(review, n.id); return r ? (r.anc[0] || r.node) : null; }
-// Destinations within the same person: top level, or under any live organization outside n's own subtree.
+// Destinations: any other live person in this file, including people the reviewer added.
 function moveTargets(n) {
   const f = cur(); if (!f) return [];
-  const person = personOf(f.review, n); if (!person) return [];
-  const out = [];
-  if (n.parentId !== person.id) out.push({ id: person.id, label: "Independent organization (not under another organization)" });
-  const walk = (o, depth) => {
-    if (o === n || o.dup === n.id || status(o) === "deleted") return;
-    if (o.id !== n.parentId) out.push({ id: o.id, label: `${"  ".repeat(depth)}Sub-organization of: ${orgLabel(o)}` });
-    o.children.forEach(c => walk(c, depth + 1));
-  };
-  person.children.forEach(o => walk(o, 0));
-  return out;
+  return f.review.people.filter(p => p.id !== n.parentId && status(p) !== "deleted")
+    .map(p => ({ id: p.id, label: personLabel(p, p.id === n.origParent) }));
 }
 function moveRow(n) {
   const targets = moveTargets(n);
-  const sel = h("select", { "aria-label": "Move to" }, targets.map(t => h("option", { value: t.id }, t.label.replace(/^ +/, m => "\u00a0".repeat(m.length * 2)))));
+  const sel = h("select", { "aria-label": "Move to" }, targets.map(t => h("option", { value: t.id }, t.label)));
   setTimeout(() => sel.focus(), 0);
-  return h("div", { class: "move-row" }, h("span", { class: "fld-label" }, "Move to"), sel,
-    h("button", { class: "primary", onclick: () => moveOrg(n, sel.value) }, "Move"),
+  return h("div", { class: "move-row" }, h("span", { class: "fld-label" }, "Move to person"), sel,
+    h("button", { class: "primary", onclick: () => moveEvent(n, sel.value) }, "Move"),
     h("button", { onclick: () => { S.moving = null; renderTree(); } }, "Cancel"));
 }
 const origIdx = n => { const m = /\[(\d+)\]$/.exec(n.path || ""); return m ? +m[1] : Infinity; };
 function placeInto(n, destId, backToOriginal) {
   const f = cur(), r = findNode(f.review, n.id), dest = findNode(f.review, destId)?.node;
   if (!r || !dest) return false;
-  const group = [n, ...r.list.filter(x => x.dup === n.id)];        // second spells travel with their organization
+  const group = [n, ...r.list.filter(x => x.dup === n.id)];        // second occurrences travel with their event
   group.forEach(x => r.list.splice(r.list.indexOf(x), 1));
   let at = dest.children.length;
   if (backToOriginal) {   // return to the model's position among its original siblings
@@ -946,7 +964,7 @@ function placeInto(n, destId, backToOriginal) {
   S.open.set(dest.id, true); S.open.set(n.id, true);
   return true;
 }
-function moveOrg(n, destId) {
+function moveEvent(n, destId) {
   if (!placeInto(n, destId)) return;
   S.moving = null;
   onEdit(n);                        // a move is a correction, like an edit
@@ -956,7 +974,7 @@ function moveOrg(n, destId) {
 function movedText(n) {
   if (!moved(n)) return "";
   const f = cur(), o = f && findNode(f.review, n.origParent)?.node;
-  return o && o.kind === "org" ? `Moved. The model had it as a sub-organization of ${nodeLabel(o)}.` : "Moved. The model had it as an independent organization.";
+  return o ? `Moved. The model gave it to ${nodeLabel(o)}.` : "Moved from another person.";
 }
 function removeAdded(n) {
   const f = cur(), r = findNode(f.review, n.id); if (!r) return;
@@ -968,7 +986,7 @@ function addChild(parent, kind) {
   n.parentId = parent ? parent.id : null;
   if (parent) S.open.set(parent.id, true);
   renderTree(); touch();
-  const el = nodeEl(n); if (el) { el.scrollIntoView({ block: "center" }); el.querySelector("input")?.focus(); }
+  const el = nodeEl(n); if (el) { el.scrollIntoView({ block: "center" }); el.querySelector("input, select")?.focus(); }
 }
 function jumpToNext() {
   const f = cur(); if (!f) return;
@@ -988,11 +1006,10 @@ function jumpToNext() {
 }
 
 /* ---------- export ---------- */
-function outOrg(o) {
-  const g = f => norm(f, o.cur[f]);
-  return { org_name: g("org_name"), sub_organizations: o.children.filter(c => status(c) !== "deleted").map(outOrg),
-    categories: g("categories"), year_month_spans: g("year_month_spans"), title: g("title"),
-    town_city: g("town_city"), region: g("region"), country: g("country") };
+// Corrected event in the model's schema (without the model's __prob confidence fields).
+function outEvent(e) {
+  const g = f => norm(f, e.cur[f]);
+  return { event_type: g("event_type"), dates: g("dates"), town_city: g("town_city"), region: g("region"), country: g("country") };
 }
 function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, obj[f])); return o; }
 
@@ -1005,10 +1022,10 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      empty     empty in both
      node_deleted  the whole node was deleted; a model value here is an FP
      node_added    the reviewer added the node; a value here is an FN
-     duplicated    copied onto a duplicate (second spell) unchanged: not counted
+     duplicated    copied onto a duplicate (second occurrence) unchanged: not counted
    Separately, any field where the model gave a value can be marked as data leakage (correct, but not
    supported by the text), including values the reviewer then corrected, cleared or deleted.
-   "<unknown>" and the date range 0000-00:0000-00 count as empty. List fields (categories, dates) are also scored item by item. */
+   "<unknown>" and the dates 0000 / 0000-00 / 0000-00-00 count as empty. The list field (dates) is also scored item by item. */
 const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
 const itemSet = (f, v) => new Set(cleanList(f, v));
 function scoreField(f, mRaw, cRaw, mode) {
@@ -1016,10 +1033,10 @@ function scoreField(f, mRaw, cRaw, mode) {
   const r = { model: mode === "added" ? null : m, corrected: mode === "deleted" ? null : c };
   if (mode === "duplicate_deleted") { r.outcome = "duplicated"; if (list) r.items = { tp: 0, fp: 0, fn: 0 }; return r; }
   if (mode === "duplicate") {
-    // Second spell split off a merged organization: not a missed organization.
+    // Second occurrence split off a merged event: not a missed event.
     // Its dates were never produced by the model, so they count as missing; other fields
     // copied from the original are neutral unless the reviewer changes them.
-    if (f === "year_month_spans") { r.model = null; const n = itemSet(f, c).size; r.outcome = n ? "missing" : "empty"; r.items = { tp: 0, fp: 0, fn: n }; return r; }
+    if (f === "dates") { r.model = null; const n = itemSet(f, c).size; r.outcome = n ? "missing" : "empty"; r.items = { tp: 0, fp: 0, fn: n }; return r; }
     if (list) {
       const ms = itemSet(f, m), cs = itemSet(f, c), fn = Array.from(cs).filter(x => !ms.has(x)).length;
       r.items = { tp: 0, fp: 0, fn }; r.outcome = fn ? "missing" : cs.size ? "duplicated" : "empty"; return r;
@@ -1081,7 +1098,7 @@ const ratio = (a, b) => b ? Math.round((a / b) * 10000) / 10000 : null;
 const prf = (tp, fp, fn) => ({ tp, fp, fn, precision: ratio(tp, tp + fp), recall: ratio(tp, tp + fn) });
 function fieldScores(counts) {
   const out = {};
-  [...PF, ...OF].forEach(f => {
+  [...PF, ...EF].forEach(f => {
     const c = counts[f]; if (!c) return;
     const o = c.outcomes;
     let kept, all;
@@ -1107,19 +1124,19 @@ function mergeByKind(acc, byKind) {
 
 function buildExport(f, reviewer) {
   const log = [], byKind = {}, counts = {};
-  const structure = { kept_organizations: 0, moved: 0, made_independent: 0, made_sub_organization: 0, moved_to_other_parent: 0 };
+  const structure = { kept_events: 0, moved: 0, moved_to_model_person: 0, moved_to_added_person: 0 };
   const visit = (n, parentId, depth, via) => {
     const st = n.dup ? "duplicate" : via ? "deleted" : status(n);
-    const kind = n.kind === "person" ? "person" : depth > 1 ? "sub_organization" : "organization";
+    const kind = n.kind;
     const mode = n.dup ? (via ? "duplicate_deleted" : "duplicate") : st === "deleted" ? "deleted" : st === "added" ? "added" : "kept";
     const e = { node_id: n.id, kind, parent_id: parentId, original_path: (n.added || n.dup) ? null : n.path, status: st };
-    if (n.kind === "org" && !n.added && !n.dup) {
+    if (n.kind === "event" && !n.added && !n.dup) {
       e.original_parent_id = n.origParent ?? parentId;
-      e.original_kind = /sub_organizations\[\d+\]$/.test(n.path || "") ? "sub_organization" : "organization";
-      if (moved(n)) e.moved = true;
+      const toAdded = !!findNode(f.review, parentId)?.node.added;
+      if (moved(n)) { e.moved = true; e.moved_to_added_person = toAdded; }
       if (st === "correct" || st === "edited") {
-        structure.kept_organizations++;
-        if (moved(n)) { structure.moved++; structure[e.original_kind === "sub_organization" ? (kind === "organization" ? "made_independent" : "moved_to_other_parent") : "made_sub_organization"]++; }
+        structure.kept_events++;
+        if (moved(n)) { structure.moved++; structure[toAdded ? "moved_to_added_person" : "moved_to_model_person"]++; }
       }
     }
     if (n.dup) { e.duplicate_of = n.dup; e.duplicate_of_path = findNode(f.review, n.dup)?.node.path ?? null; }
@@ -1139,10 +1156,10 @@ function buildExport(f, reviewer) {
   const corrected = { people: f.review.people.filter(p => status(p) !== "deleted").map(p => {
     const g = k => norm(k, p.cur[k]);
     return { name: g("name"), family_name: g("family_name"), given_name: g("given_name"), middle_name: g("middle_name"),
-      organizations: p.children.filter(c => status(c) !== "deleted").map(outOrg) };
+      events: p.children.filter(c => status(c) !== "deleted").map(outEvent) };
   }) };
   const ts = nowIso();
-  return { format: "extraction-review/2", source_file: f.base + ".json", source_text: f.base + ".txt",
+  return { format: FORMAT, source_file: f.base + ".json", source_text: f.base + ".txt",
     blank_record: !!f.blank, confirmed_empty: !f.review.people.length && !!f.review.confirmedEmpty, reviewer, exported_at: ts,
     review_history: (f.review.history || []).concat([{ reviewer, exported_at: ts }]),
     summary: { by_kind: byKind, structure, field_scores: fieldScores(counts) }, corrected, log };
@@ -1154,14 +1171,19 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function outcomesCsv(exports) {
-  const head = ["file", "node_id", "kind", "node_status", "original_path", "duplicate_of", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
+  const head = ["file", "node_id", "kind", "event_type", "node_status", "original_path", "duplicate_of", "moved", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
   const rows = [head.join(",")];
-  for (const x of exports) for (const e of x.log) for (const [f, r] of Object.entries(e.fields)) {
-    rows.push([x.source_file, e.node_id, e.kind, e.status, e.original_path, e.duplicate_of, f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
-      r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
+  for (const x of exports) for (const e of x.log) {
+    const et = e.kind === "event" ? eventTypeOf(e) : null;
+    for (const [f, r] of Object.entries(e.fields)) {
+      rows.push([x.source_file, e.node_id, e.kind, et, e.status, e.original_path, e.duplicate_of, e.moved ? "true" : "", f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
+        r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
+    }
   }
   return "\uFEFF" + rows.join("\r\n") + "\r\n";
 }
+// The type an event is grouped under: the reviewer's type, or the model's for deleted events.
+const eventTypeOf = e => { const t = e.fields?.event_type; return (e.status === "deleted" ? t?.model : t?.corrected) ?? t?.model ?? "(no type)"; };
 function batchSummary(exports, reviewer) {
   const counts = {}, byKind = {}, structure = {};
   exports.forEach(x => {
@@ -1170,13 +1192,13 @@ function batchSummary(exports, reviewer) {
     for (const [f, v] of Object.entries(x.summary.field_scores)) raw[f] = { outcomes: v.outcomes, leakage: v.leakage, leakage_by_outcome: v.leakage_by_outcome, items_kept_nodes: v.items_kept_nodes, items_added_or_deleted_nodes: v.items_added_or_deleted_nodes };
     mergeCounts(counts, raw); mergeByKind(byKind, x.summary.by_kind);
   });
-  return { format: "extraction-review-summary/2", reviewer, exported_at: nowIso(), files: exports.map(x => x.source_file),
+  return { format: SUMMARY_FORMAT, reviewer, exported_at: nowIso(), files: exports.map(x => x.source_file),
     by_kind: byKind, structure, field_scores: fieldScores(counts) };
 }
 
 function gate(f) {
   const c = tally(f.review);
-  if (c.emptyPending) return "This file has no people or organizations yet. Add them, or confirm there is nothing to add.";
+  if (c.emptyPending) return "This file has no people yet. Add them, or confirm there is nothing to add.";
   if (c.unreviewed) return `${c.unreviewed} item${c.unreviewed > 1 ? "s" : ""} in this file still need${c.unreviewed > 1 ? "" : "s"} a decision.`;
   if (c.invalid) return `${c.invalid} item${c.invalid > 1 ? "s have" : " has"} a problem to fix, shown in red on the item.`;
   return null;
@@ -1269,7 +1291,7 @@ function renderAll() { renderFileList(); renderSource(false); renderTree(); if (
 $("loadBtn").addEventListener("click", () => $("fileInput").click());
 $("fileInput").addEventListener("change", e => { loadFiles(e.target.files); e.target.value = ""; });
 $("saveAllBtn").addEventListener("click", saveAll);
-$("reviewer").value = lsGet(STORE + "reviewer") || "";
+$("reviewer").value = lsGet(STORE + "reviewer") || lsGet("xr1:reviewer") || "";   // xr1: the organizations page
 $("reviewer").addEventListener("input", e => lsSet(STORE + "reviewer", e.target.value));
 $("search").addEventListener("input", e => { const v = e.target.value.trim(); S.search.terms = v ? [v] : []; S.search.idx = 0; $("searchNote").textContent = ""; renderSource(true); });
 $("search").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); } });
