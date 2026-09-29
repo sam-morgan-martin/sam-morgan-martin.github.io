@@ -270,6 +270,8 @@ const EVENT_TYPES = [
   "violent_attack", "threat_of_violence", "imprisonment", "house_arrest", "promotion"
 ];
 const DATE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
+// Events may have no dates (the text often doesn't give one), so a blank date box is simply ignored.
+const badDate = s => { const t = String(s ?? "").trim(); return t !== "" && !DATE_RE.test(t); };
 const STATUS_TEXT = { unreviewed: "To review", correct: "Correct", edited: "Edited", deleted: "Deleted", added: "Added", duplicate: "Duplicate" };
 const STORE = "ev1:";
 const FORMAT = "event-review/1", SUMMARY_FORMAT = "event-review-summary/1";
@@ -317,7 +319,7 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { 
 
 /* ---------- model ---------- */
 function norm(f, v) {
-  if (f === "dates") { const a = (v == null ? [] : Array.isArray(v) ? v : [v]).map(s => String(s).trim()); return a.length ? a : null; }
+  if (f === "dates") { const a = (v == null ? [] : Array.isArray(v) ? v : [v]).map(s => String(s ?? "").trim()).filter(Boolean); return a.length ? a : null; }
   if (v == null) return null;
   const t = String(v).trim(); return t === "" ? null : t;
 }
@@ -393,10 +395,7 @@ function problem(n, targets) {
   const type = norm("event_type", n.cur.event_type);
   if (!type) return "Choose an event type.";
   if (!EVENT_TYPES.includes(type)) return `Choose an event type from the list: “${type}” isn't one of them.`;
-  if ((n.cur.dates || []).some(s => !DATE_RE.test(String(s).trim()))) return "Fix the dates: use YYYY, YYYY-MM or YYYY-MM-DD.";
-  if (n.dup && !cleanList("dates", n.cur.dates).length) return "Add the dates for this duplicate.";
-  if (targets && targets.has(n.id) && eq("dates", n.orig.dates, n.cur.dates))
-    return "Split the dates: this event still has the model's merged dates.";
+  if ((n.cur.dates || []).some(badDate)) return "Fix the dates: use YYYY, YYYY-MM or YYYY-MM-DD.";
   return null;
 }
 const invalid = (n, targets) => !!problem(n, targets);
@@ -833,10 +832,10 @@ function fillField(wrap, n, f, dis) {
     const list = n.cur.dates || [];
     const rows = list.map((v, i) => {
       const inp = h("input", { value: v, placeholder: "YYYY-MM", disabled: dis, id: i === 0 ? id : null,
-        "aria-label": `Date ${i + 1}`, title: "YYYY, YYYY-MM or YYYY-MM-DD. Use 00 for an unknown month or day (e.g. 2011-00)", class: DATE_RE.test(String(v).trim()) ? null : "bad" });
+        "aria-label": `Date ${i + 1}`, title: "YYYY, YYYY-MM or YYYY-MM-DD. Use 00 for an unknown month or day (e.g. 2011-00)", class: badDate(v) ? "bad" : null });
       inp.addEventListener("input", () => {
         n.cur.dates[i] = inp.value;
-        inp.classList.toggle("bad", !DATE_RE.test(inp.value.trim()));
+        inp.classList.toggle("bad", badDate(inp.value));
         onEdit(n, f); refreshWas(wrap, n, f);
       });
       return h("div", { class: "span-row" }, inp, dis ? null : h("button", { "aria-label": `Remove date ${i + 1}`,
