@@ -364,6 +364,21 @@ const changed = n => !n.added && (moved(n) || fieldsOf(n).some(f => !eq(f, n.ori
 const canLeak = (n, f) => !n.added && !n.dup && !!n.orig && !isEmptyField(f, n.orig[f]);
 const isLeak = (n, f) => !!(n.leak && n.leak[f]) && canLeak(n, f);
 const leakCount = n => fieldsOf(n).filter(f => isLeak(n, f)).length;
+// The model's confidence keys (region__prob, region__null_prob, dates__prob, ...). They are not shown,
+// so they can't sway the reviewer, but they are kept on each node and passed through to the review log.
+const PROB_KEY = /__\w*prob$/;
+function probsOf(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = {}; for (const [k, v] of Object.entries(obj)) if (PROB_KEY.test(k)) o[k] = clone(v);
+  return Object.keys(o).length ? o : null;
+}
+// Re-reads the probabilities from the record file, for reviews restored from an autosave made before they were kept.
+function attachProbs(review, json) {
+  const at = path => { const m = /^people\[(\d+)\](?:\.events\[(\d+)\])?$/.exec(path || ""); if (!m) return null;
+    const p = json?.people?.[+m[1]]; return m[2] == null ? p : p?.events?.[+m[2]]; };
+  const walk = n => { if (!n.added && !n.dup && n.path) n.probs = probsOf(at(n.path)); n.children.forEach(walk); };
+  review.people.forEach(walk);
+}
 
 function status(n) {
   if (n.dup) return "duplicate";
@@ -376,7 +391,7 @@ function status(n) {
 function buildEvent(e, id, path) {
   const orig = {}; EF.forEach(f => orig[f] = clone(e[f] ?? null));
   if (orig.dates != null && !Array.isArray(orig.dates)) orig.dates = [orig.dates];
-  return { id, kind: "event", path, orig, cur: clone(orig), decision: null, auto: false, added: false, t: null, children: [] };
+  return { id, kind: "event", path, orig, cur: clone(orig), probs: probsOf(e), decision: null, auto: false, added: false, t: null, children: [] };
 }
 function buildReview(json) {
   return {
@@ -384,7 +399,7 @@ function buildReview(json) {
     people: (json.people || []).map((p, i) => {
       const orig = {}; PF.forEach(f => orig[f] = p[f] ?? null);
       return {
-        id: "p" + i, kind: "person", path: "people[" + i + "]", orig, cur: clone(orig),
+        id: "p" + i, kind: "person", path: "people[" + i + "]", orig, cur: clone(orig), probs: probsOf(p),
         decision: null, auto: false, added: false, t: null,
         children: (p.events || []).map((e, j) => buildEvent(e, "p" + i + ".e" + j, "people[" + i + "].events[" + j + "]"))
       };
@@ -480,6 +495,7 @@ function reviewFromExport(x) {
     const n = { id: e.node_id, kind, path: e.original_path ?? null, orig, cur, leak, auto: false, added, t: e.decided_at || null, children: [],
       decision: added ? null : deleted ? (e.deleted_with_parent ? null : "delete") : "accept" };
     if (kind === "event" && !added && !dup) n.origParent = e.original_parent_id ?? e.parent_id ?? null;
+    n.probs = (!added && !dup && e.model_probs) ? clone(e.model_probs) : null;
     if (dup) { n.dup = dup; n.decision = "accept"; n.cur = Object.fromEntries(fields.map(f => [f, val(f, e.fields?.[f]?.corrected ?? (f === "dates" ? null : e.fields?.[f]?.model))])); }
     const m = /^new(\d+)$/.exec(n.id); if (m) maxNew = Math.max(maxNew, +m[1]);
     byId.set(n.id, n);
@@ -534,7 +550,7 @@ async function loadFiles(list) {
     const entry = { base, hash: hash(o.raw), json: o.parsed, text: takeText(base), review: null, error: null, fromReview: false };
     if (o.err || !o.parsed) { entry.error = "Not valid JSON: " + o.err; errors++; }
     else if (looksLikeOrgRecord(o.parsed)) { entry.error = "This record lists organizations, not events. Review it on the organizations review page."; errors++; }
-    else { entry.review = restoreAutosave(base, entry.hash) || buildReview(o.parsed); nOrig++; }
+    else { entry.review = restoreAutosave(base, entry.hash) || buildReview(o.parsed); attachProbs(entry.review, o.parsed); nOrig++; }
     S.files.set(base, entry);
   }
   for (const r of reviews) {
@@ -1035,10 +1051,27 @@ function pick(obj, fields) { const o = {}; fields.forEach(f => o[f] = norm(f, ob
      node_deleted  the whole node was deleted; a model value here is an FP
      node_added    the reviewer added the node; a value here is an FN
      duplicated    copied onto a duplicate (second occurrence) unchanged: not counted
+   Fields on the model's items (kept or deleted) also carry the model's probabilities: prob (<field>__prob)
+   and null_prob (<field>__null_prob), and the log entry keeps every __prob key verbatim as model_probs.
    Separately, any field where the model gave a value can be marked as data leakage (correct, but not
    supported by the text), including values the reviewer then corrected, cleared or deleted.
    "<unknown>" and fully unknown dates (0000-00, 0000-00:0000-00) count as empty. The list field (dates) is also scored
    item by item; a period start:end is one item, so it only matches if both ends match. */
+// The model's probabilities for one field, as {prob, null_prob}. For a list field a list of
+// probabilities is aligned with the model's list as written to the log (blank entries are dropped there).
+function fieldProbs(n, f) {
+  const out = {}; if (!n.probs) return out;
+  for (const k of ["prob", "null_prob"]) {
+    const key = f + "__" + k; if (!(key in n.probs)) continue;
+    let v = clone(n.probs[key]);
+    if (LIST_FIELDS.has(f) && Array.isArray(v) && n.orig) {
+      const raw = n.orig[f] == null ? [] : Array.isArray(n.orig[f]) ? n.orig[f] : [n.orig[f]];
+      if (raw.length === v.length) v = v.filter((_, i) => String(raw[i] ?? "").trim() !== "");
+    }
+    out[k] = v;
+  }
+  return out;
+}
 const isEmptyField = (f, v) => { if (LIST_FIELDS.has(f)) return cleanList(f, v).length === 0; const x = norm(f, v); return x == null || x === UNKNOWN; };
 const itemSet = (f, v) => new Set(cleanList(f, v));
 function scoreField(f, mRaw, cRaw, mode) {
@@ -1152,6 +1185,7 @@ function buildExport(f, reviewer) {
         if (moved(n)) { structure.moved++; structure[toAdded ? "moved_to_added_person" : "moved_to_model_person"]++; }
       }
     }
+    if (n.probs && !n.added && !n.dup) e.model_probs = clone(n.probs);
     if (n.dup) { e.duplicate_of = n.dup; e.duplicate_of_path = findNode(f.review, n.dup)?.node.path ?? null; }
     if (via) e.deleted_with_parent = true;
     if (n.t && !via) e.decided_at = n.t;
@@ -1159,6 +1193,7 @@ function buildExport(f, reviewer) {
     fieldsOf(n).forEach(k => {
       const r = scoreField(k, n.orig ? n.orig[k] : null, n.cur[k], mode);
       r.leakage = (mode === "kept" || mode === "deleted") && isLeak(n, k);
+      if (mode === "kept" || mode === "deleted") Object.assign(r, fieldProbs(n, k));
       e.fields[k] = r; addToCounts(counts, k, r);
     });
     log.push(e);
@@ -1184,13 +1219,13 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function outcomesCsv(exports) {
-  const head = ["file", "node_id", "kind", "event_type", "node_status", "original_path", "duplicate_of", "moved", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn"];
+  const head = ["file", "node_id", "kind", "event_type", "node_status", "original_path", "duplicate_of", "moved", "field", "model", "corrected", "outcome", "leakage", "item_tp", "item_fp", "item_fn", "prob", "null_prob"];
   const rows = [head.join(",")];
   for (const x of exports) for (const e of x.log) {
     const et = e.kind === "event" ? eventTypeOf(e) : null;
     for (const [f, r] of Object.entries(e.fields)) {
       rows.push([x.source_file, e.node_id, e.kind, et, e.status, e.original_path, e.duplicate_of, e.moved ? "true" : "", f, r.model, r.corrected, r.outcome, r.leakage ? "true" : "false",
-        r.items?.tp, r.items?.fp, r.items?.fn].map(csvCell).join(","));
+        r.items?.tp, r.items?.fp, r.items?.fn, r.prob, r.null_prob].map(csvCell).join(","));
     }
   }
   return "\uFEFF" + rows.join("\r\n") + "\r\n";
